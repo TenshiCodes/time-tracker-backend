@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Response
 import sqlite3
 from fastapi.middleware.cors import CORSMiddleware
 from passlib.context import CryptContext
@@ -129,6 +129,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+@app.options("/{rest_of_path:path}")
+def preflight_handler(rest_of_path: str):
+    return Response(status_code=200)
 def get_db():
     conn = psycopg2.connect(os.getenv("DATABASE_URL"))
     return conn
