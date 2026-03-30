@@ -486,8 +486,8 @@ def update_settings(user_id: int, data: dict):
             SET email_notifications = %s, sms_notifications = %s
             WHERE id = %s
         """, (
-            int(data.get("email_notifications", 0)),
-            int(data.get("sms_notifications", 0)),
+            int(data.get("email_notifications", False)),
+            int(data.get("sms_notifications", False)),
             user_id
         ))
 
