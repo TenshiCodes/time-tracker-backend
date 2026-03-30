@@ -447,10 +447,21 @@ def get_time_entries(user_id: int):
 
             results = cursor.fetchall()
 
-        return [format_row(row) for row in results]
+        # ✅ SAFE conversion (no crashes)
+        safe_results = []
+        for row in results:
+            r = dict(row)
+
+            for key, value in r.items():
+                if isinstance(value, datetime):
+                    r[key] = value.isoformat()
+
+            safe_results.append(r)
+
+        return safe_results
 
     except Exception as e:
-        print("ERROR:", e)
+        print("🔥 ERROR IN /time:", e)
         raise HTTPException(500, str(e))
 
 @app.get("/users/{user_id}")
