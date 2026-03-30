@@ -421,26 +421,31 @@ def format_row(row):
     data = dict(row)
 
     if data.get("clock_in"):
-        data["clock_in"] = data["clock_in"].replace(" ", "T") + "Z"
+        data["clock_in"] = data["clock_in"].isoformat()
 
     if data.get("clock_out"):
-        data["clock_out"] = data["clock_out"].replace(" ", "T") + "Z"
+        data["clock_out"] = data["clock_out"].isoformat()
 
     return data
 @app.get("/time/{user_id}")
 def get_time_entries(user_id: int):
-    with get_db() as conn:
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        cursor.execute("""
-            SELECT * FROM time_entries
-            WHERE user_id = %s
-            ORDER BY date DESC
-        """, (user_id,))
+            cursor.execute("""
+                SELECT * FROM time_entries
+                WHERE user_id = %s
+                ORDER BY date DESC
+            """, (user_id,))
 
-        results = cursor.fetchall()
+            results = cursor.fetchall()
 
-    return [format_row(row) for row in results]
+        return [format_row(row) for row in results]
+
+    except Exception as e:
+        print("ERROR:", e)
+        raise HTTPException(500, str(e))
 
 @app.get("/users/{user_id}")
 def get_user(user_id: int):
