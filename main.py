@@ -1,0 +1,850 @@
+import uuid
+from fastapi import FastAPI, Query
+import sqlite3
+from fastapi.middleware.cors import CORSMiddleware
+from passlib.context import CryptContext
+from fastapi import HTTPException
+from pydantic import BaseModel
+from init_db import hash_password
+import smtplib
+from email.mime.text import MIMEText
+from twilio.rest import Client
+from typing import Optional
+from fastapi import APIRouter
+from fastapi.responses import FileResponse
+from openpyxl import Workbook
+from datetime import datetime, timezone, timedelta
+import os
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
+import uuid
+from dotenv import load_dotenv
+import os
+from zoneinfo import ZoneInfo
+
+
+load_dotenv()
+
+router = APIRouter()
+# 🔥 PUT YOUR REAL VALUES HERE
+TWILIO_SID = os.getenv("TWILIO_SID")
+TWILIO_AUTH = os.getenv("TWILIO_AUTH")
+TWILIO_PHONE = os.getenv("TWILIO_PHONE")  # your Twilio number
+EMAIL_USER = os.getenv("EMAIL_USER")
+EMAIL_PASS = os.getenv("EMAIL_PASS")
+
+client = Client(TWILIO_SID, TWILIO_AUTH)
+
+def send_email(to_email, subject, message):
+    try:
+        msg = MIMEText(message)
+        msg["Subject"] = subject
+        msg["From"] = "testingApp@pbe.com"
+        msg["To"] = to_email
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(EMAIL_USER, EMAIL_PASS)
+            server.send_message(msg)
+
+        print(f"Email sent to {to_email}")
+
+    except Exception as e:
+        print("EMAIL ERROR:", e)
+
+def send_sms(phone, message):
+    try:
+        msg = client.messages.create(
+            body=message,
+            from_=TWILIO_PHONE,
+            to=phone
+        )
+        print("SMS sent:", msg.sid)
+
+    except Exception as e:
+        print("SMS ERROR:", e)
+
+def format_phone(phone: str):
+    phone = phone.strip().replace("-", "").replace("(", "").replace(")", "").replace(" ", "")
+
+    if not phone.startswith("+"):
+        # assume US
+        phone = "+1" + phone
+
+    return phone
+class UserCreate(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
+    phone: str
+    username: str
+    password: str
+    
+class TicketRequest(BaseModel):
+    description: str
+
+class ItemRequest(BaseModel):
+    name: str
+    code: str
+    
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+class RoleUpdate(BaseModel):
+    role: str
+
+class TicketRequest(BaseModel):
+    description: str
+    username: str
+
+class UserSettingsUpdate(BaseModel):
+    email_notifications: bool
+    sms_notifications: bool
+class TimeEdit(BaseModel):
+    clock_in: str
+    clock_out: str
+    item_id: int
+    job_code: str
+class ClockInRequest(BaseModel):
+    user_id: int
+    item_id: int | None = None
+    job_code: str | None = None
+
+class TimeUpdate(BaseModel):
+    clock_in: str
+    clock_out: str
+    job_code: str | None = None
+
+app = FastAPI()
+
+# Allow React frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+def get_db():
+    conn = sqlite3.connect("app.db", check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+
+def verify_password(plain, hashed):
+    plain = plain.encode("utf-8")[:72]  # 🔥 fix bcrypt limit
+    return pwd_context.verify(plain, hashed)
+
+@app.get("/calendar/event/{entry_id}")
+def create_calendar_event(entry_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT clock_in, clock_out, job_code
+        FROM time_entries
+        WHERE id = ?
+    """, (entry_id,))
+
+    entry = cursor.fetchone()
+    conn.close()
+
+    if not entry:
+        raise HTTPException(404, "Entry not found")
+
+    start, end, job = entry
+
+    if not start or not end:
+        raise HTTPException(400, "Entry not complete")
+    uid = str(uuid.uuid4())
+    dtstamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    start_dt = datetime.fromisoformat(start).replace(tzinfo=timezone.utc)
+    end_dt = datetime.fromisoformat(end).replace(tzinfo=timezone.utc)
+
+    # 📅 ICS format requires this exact format
+    start_str = start_dt.strftime("%Y%m%dT%H%M%S")
+    end_str = end_dt.strftime("%Y%m%dT%H%M%S")
+
+    lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//YourApp//EN",
+    "BEGIN:VEVENT",
+    f"UID:{uid}",
+    f"DTSTAMP:{dtstamp}",
+    f"SUMMARY:Work - {job or 'No Job'}",
+    f"DTSTART:{start_str}Z",
+    f"DTEND:{end_str}Z",
+    f"DESCRIPTION:Worked on {job or 'No Job'}",
+    "END:VEVENT",
+    "END:VCALENDAR",
+]
+
+    ics_content = "\r\n".join(lines)
+
+    file_path = f"event_{entry_id}.ics"
+
+    with open(file_path, "w") as f:
+        f.write(ics_content)
+
+    return FileResponse(
+        path=file_path,
+        filename=f"event_{entry_id}.ics",
+        media_type="text/calendar"
+    )
+
+@app.post("/export/email/{user_id}")
+def email_time_entries(user_id: int, tz: str = "UTC"):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # 🔍 get user email
+    cursor.execute("SELECT email FROM users WHERE id = ?", (user_id,))
+    user = cursor.fetchone()
+
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    email_to = user["email"]
+
+    # 🔍 get time entries
+    cursor.execute("SELECT date, clock_in, clock_out, job_code FROM time_entries WHERE user_id = ?", (user_id,))
+    rows = cursor.fetchall()
+
+    # 📄 create Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Time Entries"
+
+    ws.append(["Start", "End", "Job", "Hours"])
+
+    for row in rows:
+        _, start, end, job = row
+        hours = 0
+
+        if start and end:
+            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(ZoneInfo(tz))
+            end_dt = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(ZoneInfo(tz))
+
+            if end_dt < start_dt:
+                end_dt += timedelta(hours=12)  # simple fix
+
+            diff = end_dt - start_dt
+            hours = round(diff.total_seconds() / 3600, 2)
+
+            start = start_dt.strftime("%m/%d/%Y %I:%M:%S %p")
+            end = end_dt.strftime("%m/%d/%Y %I:%M:%S %p")
+
+        ws.append([start, end, job, f"{hours:.2f}"])
+
+    file_path = "time_entries.xlsx"
+    wb.save(file_path)
+
+    # 📧 send email with attachment
+    msg = MIMEMultipart()
+    msg["Subject"] = "Your Time Entries"
+    msg["From"] = "pbetestingapp@gmail.com"
+    msg["To"] = email_to
+
+    # attach file
+    with open(file_path, "rb") as f:
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(f.read())
+
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", "attachment; filename=time_entries.xlsx")
+    msg.attach(part)
+
+    # send
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.starttls()
+        server.login("pbetestingapp@gmail.com", "msbkapiohorwpcgb")
+        server.send_message(msg)
+
+    return {"message": f"Email sent to {email_to}"}
+
+@app.get("/export/time")
+def export_time_entries(tz: str = "UTC"):
+    db = get_db()
+    cursor = db.cursor()
+
+    cursor.execute("SELECT id, date, clock_in, clock_out, job_code FROM time_entries")
+    rows = cursor.fetchall()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Time Entries"
+
+    ws.append(["Start", "End", "Job", "Hours"])
+
+    for row in rows:
+        _, date, start, end, job = row
+
+        hours = 0
+        
+        if start and end:
+            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(ZoneInfo(tz))
+            end_dt = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(ZoneInfo(tz))
+
+            if end_dt < start_dt:
+                diff_hours = (start_dt - end_dt).total_seconds() / 3600
+
+                # 🔥 CASE 1: small difference → bad input → FIX to same day PM
+                if diff_hours <= 12:
+                    # assume PM mistake → add 12 hours
+                    end_dt += timedelta(hours=12)
+
+                # 🔥 CASE 2: large difference → real overnight
+                else:
+                    end_dt += timedelta(days=1)
+
+            diff = end_dt - start_dt
+            hours = round(diff.total_seconds() / 3600, 2)
+
+            start = start_dt.strftime("%m/%d/%Y %I:%M:%S %p")
+            end = end_dt.strftime("%m/%d/%Y %I:%M:%S %p")
+
+        ws.append([
+            start,
+            end,
+            job,
+            f"{hours:.2f}"
+        ])
+    file_path = "time_entries.xlsx"
+    wb.save(file_path)
+
+    return FileResponse(
+        path=file_path,
+        filename="time_entries.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+@app.post("/time/clock-in")
+def clock_in(data: ClockInRequest):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # prevent double clock in
+    cursor.execute("""
+        SELECT * FROM time_entries 
+        WHERE user_id = ? AND clock_out IS NULL
+    """, (data.user_id,))
+    
+    if cursor.fetchone():
+        conn.close()
+        raise HTTPException(400, "Already clocked in")
+
+    # ✅ FIX: include item_id + job_code
+    cursor.execute("""
+        INSERT INTO time_entries 
+        (user_id, date, clock_in, item_id, job_code)
+        VALUES (?, DATE('now'), DATETIME('now'), ?, ?)
+    """, (
+        data.user_id,
+        data.item_id,
+        data.job_code
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return {"message": "Clocked in"}
+
+@app.get("/time/entry/{entry_id}")
+def get_entry(entry_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM time_entries WHERE id = ?", (entry_id,))
+    entry = cursor.fetchone()
+    conn.close()
+
+    if not entry:
+        raise HTTPException(404, "Not found")
+
+    return dict(entry)
+
+@app.post("/time/clock-out")
+def clock_out(user_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, clock_in FROM time_entries
+        WHERE user_id = ? AND date = DATE('now')
+        ORDER BY id DESC LIMIT 1
+    """, (user_id,))
+
+    entry = cursor.fetchone()
+
+    if not entry:
+        conn.close()
+        raise HTTPException(404, "No clock-in found")
+
+    clock_in_time = entry["clock_in"]
+
+    cursor.execute("""
+        UPDATE time_entries
+        SET clock_out = DATETIME('now'),
+            total_hours = (
+                (strftime('%s','now') - strftime('%s', ?)) / 3600.0
+            )
+        WHERE id = ?
+    """, (clock_in_time, entry["id"]))
+
+    conn.commit()
+    conn.close()
+
+    return {"message": "Clocked out"}
+@app.get("/time/status/{user_id}")
+def get_time_status(user_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT clock_in, job_code
+        FROM time_entries
+        WHERE user_id = ? AND clock_out IS NULL
+        ORDER BY id DESC LIMIT 1
+    """, (user_id,))
+
+    entry = cursor.fetchone()
+    conn.close()
+
+    if not entry:
+        return {"clocked_in": False}
+
+    return {
+        "clocked_in": True,
+        "clock_in": entry["clock_in"],
+        "job_code": entry["job_code"],
+        "job_name": entry["job_code"],  # optional (replace if you join items table)
+    }
+def format_row(row):
+    data = dict(row)
+
+    if data.get("clock_in"):
+        data["clock_in"] = data["clock_in"].replace(" ", "T") + "Z"
+
+    if data.get("clock_out"):
+        data["clock_out"] = data["clock_out"].replace(" ", "T") + "Z"
+
+    return data
+@app.get("/time/{user_id}")
+def get_time_entries(user_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM time_entries
+        WHERE user_id = ?
+        ORDER BY date DESC
+    """, (user_id,))
+
+    results = cursor.fetchall()
+    conn.close()
+
+    return [format_row(row) for row in results]
+
+@app.get("/users/{user_id}")
+def get_user(user_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, first_name, last_name, email, phone, username, role,
+               email_notifications, sms_notifications
+        FROM users
+        WHERE id = ?
+    """, (user_id,))
+
+    user = cursor.fetchone()
+    conn.close()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return dict(user)
+
+@app.put("/time/{entry_id}")
+def update_entry(entry_id: int, data: dict):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE time_entries
+        SET clock_in = ?, clock_out = ?, job_code = ?, item_id = ?
+        WHERE id = ?
+    """, (
+        data.get("clock_in"),
+        data.get("clock_out"),
+        data.get("job_code"),
+        data.get("item_id"),
+        entry_id
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return {"message": "Updated"}
+
+@app.put("/users/{user_id}/settings")
+def update_settings(user_id: int, data: dict):
+    print("🔥 HIT SETTINGS:", user_id, data)
+    
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE users
+        SET email_notifications = ?, sms_notifications = ?
+        WHERE id = ?
+    """, (
+        int(data.get("email_notifications", 0)),
+        int(data.get("sms_notifications", 0)),
+        user_id
+    ))
+
+    print("UPDATED ROWS:", cursor.rowcount)
+
+    conn.commit()
+    conn.close()
+
+    return {"message": "Settings updated"}
+
+@app.put("/users/{user_id}/role")
+def update_role(user_id: int, data: RoleUpdate):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "UPDATE users SET role = ? WHERE id = ?",
+        (data.role, user_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return {"message": "Role updated"}
+
+@app.delete("/users/{user_id}")
+def delete_user(user_id: int):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+    conn.commit()
+    conn.close()
+
+    return {"message": "User deleted"}
+
+@app.get("/users")
+def get_users():
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, first_name, last_name, email, phone, username, role,
+            email_notifications, sms_notifications
+        FROM users
+    """)
+
+    users = cursor.fetchall()
+    conn.close()
+
+    return [
+        {
+            "id": u[0],
+            "first_name": u[1],
+            "last_name": u[2],
+            "email": u[3],
+            "phone": u[4],
+            "username": u[5],
+            "role": u[6],
+            "email_notifications": u[7],
+            "sms_notifications": u[8],
+        }
+        for u in users
+    ]
+      
+@app.post("/users")
+def create_user(user: UserCreate):
+    email = user.email.lower()
+    if "@" not in email:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid email"
+        )
+    # ✅ DOMAIN VALIDATION (put it HERE)
+    domain = user.email.lower().split("@")[-1]
+    if domain != "pacificblueengineering.com":
+        raise HTTPException(
+            status_code=404,
+            detail=""
+        )
+    conn = get_db()
+    cursor = conn.cursor()
+
+    hashed_password = hash_password(user.password)
+
+    formatted_phone = format_phone(user.phone)  # 🔥 ADD THIS
+
+    base_username = user.email.split("@")[0]
+    generated_username = base_username
+
+    count = 1
+    while True:
+        cursor.execute("SELECT * FROM users WHERE username = ?", (generated_username,))
+        if not cursor.fetchone():
+            break
+        generated_username = f"{base_username}{count}"
+        count += 1
+
+    cursor.execute("""
+        INSERT INTO users (first_name, last_name, email, phone, username, password_hash, role)
+        VALUES (?, ?, ?, ?, ?, ?, 'user')
+    """, (
+        user.first_name,
+        user.last_name,
+        user.email,
+        formatted_phone,  # 🔥 USE FORMATTED
+        generated_username,
+        hashed_password
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return {"message": "User created", "username": generated_username}
+
+@app.get("/tickets/history")
+def get_ticket_history():
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT * FROM tickets WHERE status != 'pending' ORDER BY id DESC"
+    )
+
+    results = cursor.fetchall()
+    conn.close()
+
+    return [dict(row) for row in results]
+
+@app.get("/tickets")
+def get_pending_tickets():
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT * FROM tickets WHERE status = 'pending' ORDER BY id DESC"
+    )
+
+    results = cursor.fetchall()
+    conn.close()
+
+    return [dict(row) for row in results]
+
+@app.post("/tickets")
+def create_ticket(data: TicketRequest):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO tickets (description, username) VALUES (?, ?)",
+        (data.description, data.username)
+    )
+
+    conn.commit()
+
+    # 🔥 GET ADMINS WHO WANT NOTIFICATIONS
+    cursor.execute("""
+        SELECT email, phone, email_notifications, sms_notifications
+        FROM users
+        WHERE role = 'admin'
+    """)
+
+    admins = cursor.fetchall()
+
+    for admin in admins:
+        email = admin["email"]
+        phone = admin["phone"]
+        email_on = admin["email_notifications"]
+        sms_on = admin["sms_notifications"]
+
+        if email_on:
+            send_email(
+                email,
+                "New Ticket Submitted",
+                f"A new ticket was submitted by {data.username}"
+            )
+
+        if sms_on:
+            send_sms(phone, "New ticket submitted")
+
+    conn.close()
+
+    return {"message": "Ticket submitted"}
+
+@app.post("/tickets/{ticket_id}/approve")
+def approve_ticket(ticket_id: int, username: str):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # 🔍 get ticket owner
+    cursor.execute("SELECT username FROM tickets WHERE id = ?", (ticket_id,))
+    ticket = cursor.fetchone()
+
+    if not ticket:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    ticket_username = ticket["username"]
+
+    # 🔄 update ticket
+    cursor.execute("""
+        UPDATE tickets
+        SET status = 'approved',
+            approved_at = CURRENT_TIMESTAMP,
+            approved_by = ?
+        WHERE id = ?
+    """, (username, ticket_id))
+
+    conn.commit()
+
+    # 🔍 get user info
+    cursor.execute("""
+        SELECT email, phone, email_notifications, sms_notifications
+        FROM users
+        WHERE username = ?
+    """, (ticket_username,))
+
+    user = cursor.fetchone()
+
+    if user:
+        if user["email_notifications"]:
+            send_email(
+                user["email"],
+                "Ticket Approved",
+                "Your ticket has been approved"
+            )
+
+        if user["sms_notifications"]:
+            send_sms(user["phone"], "Your ticket was approved")
+
+    conn.close()
+
+    return {"message": "Ticket approved"}
+
+@app.post("/tickets/{ticket_id}/reject")
+def reject_ticket(ticket_id: int, username: str):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT username FROM tickets WHERE id = ?", (ticket_id,))
+    ticket = cursor.fetchone()
+
+    if not ticket:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    ticket_username = ticket["username"]
+
+    cursor.execute("""
+        UPDATE tickets
+        SET status = 'rejected',
+            rejected_at = CURRENT_TIMESTAMP,
+            rejected_by = ?
+        WHERE id = ?
+    """, (username, ticket_id))
+
+    conn.commit()
+
+    cursor.execute("""
+        SELECT email, phone, email_notifications, sms_notifications
+        FROM users
+        WHERE username = ?
+    """, (ticket_username,))
+
+    user = cursor.fetchone()
+
+    if user:
+        if user["email_notifications"]:
+            send_email(
+                user["email"],
+                "Ticket Rejected",
+                "Your ticket has been rejected"
+            )
+
+        if user["sms_notifications"]:
+            send_sms(user["phone"], "Your ticket was rejected")
+
+    conn.close()
+
+    return {"message": "Ticket rejected"}
+
+@app.post("/items")
+def create_item(data: ItemRequest):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO items (name, code) VALUES (?, ?)",
+        (data.name, data.code)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return {"message": "Item created"}
+
+
+@app.post("/login")
+def login(data: LoginRequest):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT * FROM users WHERE username = ?",
+        (data.username,)
+    )
+
+    user = cursor.fetchone()
+    conn.close()
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username")
+
+    user = dict(user)
+
+    if not verify_password(data.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid password")
+
+    return {
+    "message": "Login successful",
+    "id": user["id"],   # ✅ MUST EXIST
+    "username": user["username"],
+    "role": user["role"]
+}
+@app.get("/search")
+def search_items(q: str):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    words = q.split()
+    query = " AND ".join(["name LIKE ?" for _ in words])
+    params = [f"%{word}%" for word in words]
+
+    cursor.execute(f"""
+        SELECT id, name, code FROM items
+        WHERE {query}
+        LIMIT 20
+    """, params)
+
+    results = cursor.fetchall()
+    conn.close()
+
+    return [dict(row) for row in results]

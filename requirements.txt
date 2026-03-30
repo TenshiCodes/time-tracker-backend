@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+passlib
+argon2-cffi
+pydantic
+twilio
+openpyxl
+python-dotenv
