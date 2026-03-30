@@ -421,10 +421,16 @@ def format_row(row):
     data = dict(row)
 
     if data.get("clock_in"):
-        data["clock_in"] = data["clock_in"].isoformat()
+        if isinstance(data["clock_in"], str):
+            data["clock_in"] = data["clock_in"].replace(" ", "T") + "Z"
+        else:
+            data["clock_in"] = data["clock_in"].isoformat()
 
     if data.get("clock_out"):
-        data["clock_out"] = data["clock_out"].isoformat()
+        if isinstance(data["clock_out"], str):
+            data["clock_out"] = data["clock_out"].replace(" ", "T") + "Z"
+        else:
+            data["clock_out"] = data["clock_out"].isoformat()
 
     return data
 @app.get("/time/{user_id}")
