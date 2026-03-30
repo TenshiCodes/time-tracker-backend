@@ -1,4 +1,3 @@
-import uuid
 from fastapi import FastAPI, Query
 import sqlite3
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,8 +19,9 @@ from email.mime.base import MIMEBase
 from email import encoders
 import uuid
 from dotenv import load_dotenv
-import os
+import psycopg2
 from zoneinfo import ZoneInfo
+import psycopg2.extras
 
 
 load_dotenv()
@@ -69,8 +69,10 @@ def format_phone(phone: str):
     phone = phone.strip().replace("-", "").replace("(", "").replace(")", "").replace(" ", "")
 
     if not phone.startswith("+"):
-        # assume US
-        phone = "+1" + phone
+        if phone.startswith("1"):
+            phone = "+" + phone
+        else:
+            phone = "+1" + phone
 
     return phone
 class UserCreate(BaseModel):
@@ -80,9 +82,6 @@ class UserCreate(BaseModel):
     phone: str
     username: str
     password: str
-    
-class TicketRequest(BaseModel):
-    description: str
 
 class ItemRequest(BaseModel):
     name: str
@@ -127,8 +126,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 def get_db():
-    conn = sqlite3.connect("app.db", check_same_thread=False)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
     return conn
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
@@ -139,79 +137,78 @@ def verify_password(plain, hashed):
 
 @app.get("/calendar/event/{entry_id}")
 def create_calendar_event(entry_id: int):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute("""
-        SELECT clock_in, clock_out, job_code
-        FROM time_entries
-        WHERE id = ?
-    """, (entry_id,))
+        cursor.execute("""
+            SELECT clock_in, clock_out, job_code
+            FROM time_entries
+            WHERE id = %s
+        """, (entry_id,))
 
-    entry = cursor.fetchone()
-    conn.close()
+        entry = cursor.fetchone()
 
     if not entry:
         raise HTTPException(404, "Entry not found")
 
-    start, end, job = entry
+    start = entry["clock_in"]
+    end = entry["clock_out"]
+    job = entry["job_code"]
 
     if not start or not end:
         raise HTTPException(400, "Entry not complete")
+
     uid = str(uuid.uuid4())
     dtstamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
     start_dt = datetime.fromisoformat(start).replace(tzinfo=timezone.utc)
     end_dt = datetime.fromisoformat(end).replace(tzinfo=timezone.utc)
 
-    # 📅 ICS format requires this exact format
     start_str = start_dt.strftime("%Y%m%dT%H%M%S")
     end_str = end_dt.strftime("%Y%m%dT%H%M%S")
 
     lines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//YourApp//EN",
-    "BEGIN:VEVENT",
-    f"UID:{uid}",
-    f"DTSTAMP:{dtstamp}",
-    f"SUMMARY:Work - {job or 'No Job'}",
-    f"DTSTART:{start_str}Z",
-    f"DTEND:{end_str}Z",
-    f"DESCRIPTION:Worked on {job or 'No Job'}",
-    "END:VEVENT",
-    "END:VCALENDAR",
-]
-
-    ics_content = "\r\n".join(lines)
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//YourApp//EN",
+        "BEGIN:VEVENT",
+        f"UID:{uid}",
+        f"DTSTAMP:{dtstamp}",
+        f"SUMMARY:Work - {job or 'No Job'}",
+        f"DTSTART:{start_str}Z",
+        f"DTEND:{end_str}Z",
+        f"DESCRIPTION:Worked on {job or 'No Job'}",
+        "END:VEVENT",
+        "END:VCALENDAR",
+    ]
 
     file_path = f"event_{entry_id}.ics"
 
     with open(file_path, "w") as f:
-        f.write(ics_content)
+        f.write("\r\n".join(lines))
 
     return FileResponse(
         path=file_path,
-        filename=f"event_{entry_id}.ics",
+        filename=file_path,
         media_type="text/calendar"
     )
-
 @app.post("/export/email/{user_id}")
 def email_time_entries(user_id: int, tz: str = "UTC"):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    # 🔍 get user email
-    cursor.execute("SELECT email FROM users WHERE id = ?", (user_id,))
-    user = cursor.fetchone()
+        # 🔍 get user email
+        cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
+        user = cursor.fetchone()
 
-    if not user:
-        raise HTTPException(404, "User not found")
+        if not user:
+            raise HTTPException(404, "User not found")
 
-    email_to = user["email"]
+        email_to = user["email"]
 
-    # 🔍 get time entries
-    cursor.execute("SELECT date, clock_in, clock_out, job_code FROM time_entries WHERE user_id = ?", (user_id,))
-    rows = cursor.fetchall()
+        # 🔍 get time entries
+        cursor.execute("SELECT date, clock_in, clock_out, job_code FROM time_entries WHERE user_id = %s", (user_id,))
+        rows = cursor.fetchall()
 
     # 📄 create Excel
     wb = Workbook()
@@ -245,7 +242,7 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
     # 📧 send email with attachment
     msg = MIMEMultipart()
     msg["Subject"] = "Your Time Entries"
-    msg["From"] = "pbetestingapp@gmail.com"
+    msg["From"] = EMAIL_USER
     msg["To"] = email_to
 
     # attach file
@@ -260,18 +257,18 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
     # send
     with smtplib.SMTP("smtp.gmail.com", 587) as server:
         server.starttls()
-        server.login("pbetestingapp@gmail.com", "msbkapiohorwpcgb")
+        server.login(EMAIL_USER, EMAIL_PASS)
         server.send_message(msg)
 
     return {"message": f"Email sent to {email_to}"}
 
 @app.get("/export/time")
 def export_time_entries(tz: str = "UTC"):
-    db = get_db()
-    cursor = db.cursor()
+    with get_db() as db:
+        cursor = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute("SELECT id, date, clock_in, clock_out, job_code FROM time_entries")
-    rows = cursor.fetchall()
+        cursor.execute("SELECT id, date, clock_in, clock_out, job_code FROM time_entries")
+        rows = cursor.fetchall()
 
     wb = Workbook()
     ws = wb.active
@@ -323,95 +320,86 @@ def export_time_entries(tz: str = "UTC"):
 
 @app.post("/time/clock-in")
 def clock_in(data: ClockInRequest):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    # prevent double clock in
-    cursor.execute("""
-        SELECT * FROM time_entries 
-        WHERE user_id = ? AND clock_out IS NULL
-    """, (data.user_id,))
-    
-    if cursor.fetchone():
-        conn.close()
-        raise HTTPException(400, "Already clocked in")
+        # prevent double clock in
+        cursor.execute("""
+            SELECT * FROM time_entries 
+            WHERE user_id = %s AND clock_out IS NULL
+        """, (data.user_id,))
+        
+        if cursor.fetchone():
+        
+            raise HTTPException(400, "Already clocked in")
 
-    # ✅ FIX: include item_id + job_code
-    cursor.execute("""
-        INSERT INTO time_entries 
-        (user_id, date, clock_in, item_id, job_code)
-        VALUES (?, DATE('now'), DATETIME('now'), ?, ?)
-    """, (
-        data.user_id,
-        data.item_id,
-        data.job_code
-    ))
+        # ✅ FIX: include item_id + job_code
+        cursor.execute("""
+            INSERT INTO time_entries 
+            (user_id, date, clock_in, item_id, job_code)
+            VALUES (%s, CURRENT_DATE, NOW(), %s, %s)
+        """, (
+            data.user_id,
+            data.item_id,
+            data.job_code
+        ))
 
-    conn.commit()
-    conn.close()
-
+        conn.commit()
     return {"message": "Clocked in"}
 
 @app.get("/time/entry/{entry_id}")
 def get_entry(entry_id: int):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute("SELECT * FROM time_entries WHERE id = ?", (entry_id,))
-    entry = cursor.fetchone()
-    conn.close()
+        cursor.execute("SELECT * FROM time_entries WHERE id = %s", (entry_id,))
+        entry = cursor.fetchone()
+    
 
-    if not entry:
-        raise HTTPException(404, "Not found")
+        if not entry:
+            raise HTTPException(404, "Not found")
 
     return dict(entry)
 
 @app.post("/time/clock-out")
 def clock_out(user_id: int):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute("""
-        SELECT id, clock_in FROM time_entries
-        WHERE user_id = ? AND date = DATE('now')
-        ORDER BY id DESC LIMIT 1
-    """, (user_id,))
+        cursor.execute("""
+            SELECT id, clock_in FROM time_entries
+            WHERE user_id = %s AND date = CURRENT_DATE
+            ORDER BY id DESC LIMIT 1
+        """, (user_id,))
 
-    entry = cursor.fetchone()
+        entry = cursor.fetchone()
 
-    if not entry:
-        conn.close()
-        raise HTTPException(404, "No clock-in found")
+        if not entry:
+            raise HTTPException(404, "No clock-in found")
 
-    clock_in_time = entry["clock_in"]
+        cursor.execute("""
+            UPDATE time_entries
+            SET clock_out = NOW(),
+                total_hours = EXTRACT(EPOCH FROM (NOW() - clock_in)) / 3600.0
+            WHERE id = %s
+        """, (entry["id"],))
 
-    cursor.execute("""
-        UPDATE time_entries
-        SET clock_out = DATETIME('now'),
-            total_hours = (
-                (strftime('%s','now') - strftime('%s', ?)) / 3600.0
-            )
-        WHERE id = ?
-    """, (clock_in_time, entry["id"]))
-
-    conn.commit()
-    conn.close()
-
+        conn.commit()
+  
     return {"message": "Clocked out"}
 @app.get("/time/status/{user_id}")
 def get_time_status(user_id: int):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute("""
-        SELECT clock_in, job_code
-        FROM time_entries
-        WHERE user_id = ? AND clock_out IS NULL
-        ORDER BY id DESC LIMIT 1
-    """, (user_id,))
+        cursor.execute("""
+            SELECT clock_in, job_code
+            FROM time_entries
+            WHERE user_id = %s AND clock_out IS NULL
+            ORDER BY id DESC LIMIT 1
+        """, (user_id,))
 
-    entry = cursor.fetchone()
-    conn.close()
+        entry = cursor.fetchone()
 
     if not entry:
         return {"clocked_in": False}
@@ -434,34 +422,33 @@ def format_row(row):
     return data
 @app.get("/time/{user_id}")
 def get_time_entries(user_id: int):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute("""
-        SELECT * FROM time_entries
-        WHERE user_id = ?
-        ORDER BY date DESC
-    """, (user_id,))
+        cursor.execute("""
+            SELECT * FROM time_entries
+            WHERE user_id = %s
+            ORDER BY date DESC
+        """, (user_id,))
 
-    results = cursor.fetchall()
-    conn.close()
+        results = cursor.fetchall()
 
     return [format_row(row) for row in results]
 
 @app.get("/users/{user_id}")
 def get_user(user_id: int):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute("""
-        SELECT id, first_name, last_name, email, phone, username, role,
-               email_notifications, sms_notifications
-        FROM users
-        WHERE id = ?
-    """, (user_id,))
+        cursor.execute("""
+            SELECT id, first_name, last_name, email, phone, username, role,
+                email_notifications, sms_notifications
+            FROM users
+            WHERE id = %s
+        """, (user_id,))
 
-    user = cursor.fetchone()
-    conn.close()
+        user = cursor.fetchone()
+
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -470,105 +457,83 @@ def get_user(user_id: int):
 
 @app.put("/time/{entry_id}")
 def update_entry(entry_id: int, data: dict):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute("""
-        UPDATE time_entries
-        SET clock_in = ?, clock_out = ?, job_code = ?, item_id = ?
-        WHERE id = ?
-    """, (
-        data.get("clock_in"),
-        data.get("clock_out"),
-        data.get("job_code"),
-        data.get("item_id"),
-        entry_id
-    ))
+        cursor.execute("""
+            UPDATE time_entries
+            SET clock_in = %s, clock_out = %s, job_code = %s, item_id = %s
+            WHERE id = %s
+        """, (
+            data.get("clock_in"),
+            data.get("clock_out"),
+            data.get("job_code"),
+            data.get("item_id"),
+            entry_id
+        ))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
 
     return {"message": "Updated"}
 
 @app.put("/users/{user_id}/settings")
 def update_settings(user_id: int, data: dict):
-    print("🔥 HIT SETTINGS:", user_id, data)
-    
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute("""
-        UPDATE users
-        SET email_notifications = ?, sms_notifications = ?
-        WHERE id = ?
-    """, (
-        int(data.get("email_notifications", 0)),
-        int(data.get("sms_notifications", 0)),
-        user_id
-    ))
+        cursor.execute("""
+            UPDATE users
+            SET email_notifications = %s, sms_notifications = %s
+            WHERE id = %s
+        """, (
+            int(data.get("email_notifications", 0)),
+            int(data.get("sms_notifications", 0)),
+            user_id
+        ))
 
-    print("UPDATED ROWS:", cursor.rowcount)
 
-    conn.commit()
-    conn.close()
-
+        conn.commit()
     return {"message": "Settings updated"}
 
 @app.put("/users/{user_id}/role")
 def update_role(user_id: int, data: RoleUpdate):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute(
-        "UPDATE users SET role = ? WHERE id = ?",
-        (data.role, user_id)
-    )
+        cursor.execute(
+            "UPDATE users SET role = %s WHERE id = %s",
+            (data.role, user_id)
+        )
 
-    conn.commit()
-    conn.close()
+        conn.commit()
 
     return {"message": "Role updated"}
 
 @app.delete("/users/{user_id}")
 def delete_user(user_id: int):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
 
     return {"message": "User deleted"}
 
 @app.get("/users")
 def get_users():
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute("""
-        SELECT id, first_name, last_name, email, phone, username, role,
-            email_notifications, sms_notifications
-        FROM users
-    """)
+        cursor.execute("""
+            SELECT id, first_name, last_name, email, phone, username, role,
+                email_notifications, sms_notifications
+            FROM users
+        """)
 
-    users = cursor.fetchall()
-    conn.close()
+        users = cursor.fetchall()
 
-    return [
-        {
-            "id": u[0],
-            "first_name": u[1],
-            "last_name": u[2],
-            "email": u[3],
-            "phone": u[4],
-            "username": u[5],
-            "role": u[6],
-            "email_notifications": u[7],
-            "sms_notifications": u[8],
-        }
-        for u in users
-    ]
+    return [dict(u) for u in users]
       
 @app.post("/users")
 def create_user(user: UserCreate):
@@ -585,235 +550,224 @@ def create_user(user: UserCreate):
             status_code=404,
             detail=""
         )
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    hashed_password = hash_password(user.password)
+        hashed_password = hash_password(user.password)
 
-    formatted_phone = format_phone(user.phone)  # 🔥 ADD THIS
+        formatted_phone = format_phone(user.phone)  # 🔥 ADD THIS
 
-    base_username = user.email.split("@")[0]
-    generated_username = base_username
+        base_username = user.email.split("@")[0]
+        generated_username = base_username
 
-    count = 1
-    while True:
-        cursor.execute("SELECT * FROM users WHERE username = ?", (generated_username,))
-        if not cursor.fetchone():
-            break
-        generated_username = f"{base_username}{count}"
-        count += 1
+        count = 1
+        while True:
+            cursor.execute("SELECT * FROM users WHERE username = %s", (generated_username,))
+            if not cursor.fetchone():
+                break
+            generated_username = f"{base_username}{count}"
+            count += 1
 
-    cursor.execute("""
-        INSERT INTO users (first_name, last_name, email, phone, username, password_hash, role)
-        VALUES (?, ?, ?, ?, ?, ?, 'user')
-    """, (
-        user.first_name,
-        user.last_name,
-        user.email,
-        formatted_phone,  # 🔥 USE FORMATTED
-        generated_username,
-        hashed_password
-    ))
+        cursor.execute("""
+            INSERT INTO users (first_name, last_name, email, phone, username, password_hash, role)
+            VALUES (%s, %s, %s, %s, %s, %s, 'user')
+        """, (
+            user.first_name,
+            user.last_name,
+            user.email,
+            formatted_phone,  # 🔥 USE FORMATTED
+            generated_username,
+            hashed_password
+        ))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
 
     return {"message": "User created", "username": generated_username}
 
 @app.get("/tickets/history")
 def get_ticket_history():
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute(
-        "SELECT * FROM tickets WHERE status != 'pending' ORDER BY id DESC"
-    )
+        cursor.execute(
+            "SELECT * FROM tickets WHERE status != 'pending' ORDER BY id DESC"
+        )
 
-    results = cursor.fetchall()
-    conn.close()
+        results = cursor.fetchall()
 
     return [dict(row) for row in results]
 
 @app.get("/tickets")
 def get_pending_tickets():
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute(
-        "SELECT * FROM tickets WHERE status = 'pending' ORDER BY id DESC"
-    )
+        cursor.execute(
+            "SELECT * FROM tickets WHERE status = 'pending' ORDER BY id DESC"
+        )
 
-    results = cursor.fetchall()
-    conn.close()
+        results = cursor.fetchall()
 
     return [dict(row) for row in results]
 
 @app.post("/tickets")
 def create_ticket(data: TicketRequest):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute(
-        "INSERT INTO tickets (description, username) VALUES (?, ?)",
-        (data.description, data.username)
-    )
+        cursor.execute(
+            "INSERT INTO tickets (description, username) VALUES (%s, %s)",
+            (data.description, data.username)
+        )
 
-    conn.commit()
+        conn.commit()
 
-    # 🔥 GET ADMINS WHO WANT NOTIFICATIONS
-    cursor.execute("""
-        SELECT email, phone, email_notifications, sms_notifications
-        FROM users
-        WHERE role = 'admin'
-    """)
+        # 🔥 GET ADMINS WHO WANT NOTIFICATIONS
+        cursor.execute("""
+            SELECT email, phone, email_notifications, sms_notifications
+            FROM users
+            WHERE role = 'admin'
+        """)
 
-    admins = cursor.fetchall()
+        admins = cursor.fetchall()
 
-    for admin in admins:
-        email = admin["email"]
-        phone = admin["phone"]
-        email_on = admin["email_notifications"]
-        sms_on = admin["sms_notifications"]
+        for admin in admins:
+            email = admin["email"]
+            phone = admin["phone"]
+            email_on = admin["email_notifications"]
+            sms_on = admin["sms_notifications"]
 
-        if email_on:
-            send_email(
-                email,
-                "New Ticket Submitted",
-                f"A new ticket was submitted by {data.username}"
-            )
+            if email_on:
+                send_email(
+                    email,
+                    "New Ticket Submitted",
+                    f"A new ticket was submitted by {data.username}"
+                )
 
-        if sms_on:
-            send_sms(phone, "New ticket submitted")
-
-    conn.close()
+            if sms_on:
+                send_sms(phone, "New ticket submitted")
 
     return {"message": "Ticket submitted"}
 
 @app.post("/tickets/{ticket_id}/approve")
 def approve_ticket(ticket_id: int, username: str):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    # 🔍 get ticket owner
-    cursor.execute("SELECT username FROM tickets WHERE id = ?", (ticket_id,))
-    ticket = cursor.fetchone()
+        # 🔍 get ticket owner
+        cursor.execute("SELECT username FROM tickets WHERE id = %s", (ticket_id,))
+        ticket = cursor.fetchone()
 
-    if not ticket:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Ticket not found")
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
 
-    ticket_username = ticket["username"]
+        ticket_username = ticket["username"]
 
-    # 🔄 update ticket
-    cursor.execute("""
-        UPDATE tickets
-        SET status = 'approved',
-            approved_at = CURRENT_TIMESTAMP,
-            approved_by = ?
-        WHERE id = ?
-    """, (username, ticket_id))
+        # 🔄 update ticket
+        cursor.execute("""
+            UPDATE tickets
+            SET status = 'approved',
+                approved_at = CURRENT_TIMESTAMP,
+                approved_by = %s
+            WHERE id = %s
+        """, (username, ticket_id))
 
-    conn.commit()
+        conn.commit()
 
-    # 🔍 get user info
-    cursor.execute("""
-        SELECT email, phone, email_notifications, sms_notifications
-        FROM users
-        WHERE username = ?
-    """, (ticket_username,))
+        # 🔍 get user info
+        cursor.execute("""
+            SELECT email, phone, email_notifications, sms_notifications
+            FROM users
+            WHERE username = %s
+        """, (ticket_username,))
 
-    user = cursor.fetchone()
+        user = cursor.fetchone()
 
-    if user:
-        if user["email_notifications"]:
-            send_email(
-                user["email"],
-                "Ticket Approved",
-                "Your ticket has been approved"
-            )
+        if user:
+            if user["email_notifications"]:
+                send_email(
+                    user["email"],
+                    "Ticket Approved",
+                    "Your ticket has been approved"
+                )
 
-        if user["sms_notifications"]:
-            send_sms(user["phone"], "Your ticket was approved")
+            if user["sms_notifications"]:
+                send_sms(user["phone"], "Your ticket was approved")
 
-    conn.close()
 
     return {"message": "Ticket approved"}
 
 @app.post("/tickets/{ticket_id}/reject")
 def reject_ticket(ticket_id: int, username: str):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute("SELECT username FROM tickets WHERE id = ?", (ticket_id,))
-    ticket = cursor.fetchone()
+        cursor.execute("SELECT username FROM tickets WHERE id = %s", (ticket_id,))
+        ticket = cursor.fetchone()
 
-    if not ticket:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Ticket not found")
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
 
-    ticket_username = ticket["username"]
+        ticket_username = ticket["username"]
 
-    cursor.execute("""
-        UPDATE tickets
-        SET status = 'rejected',
-            rejected_at = CURRENT_TIMESTAMP,
-            rejected_by = ?
-        WHERE id = ?
-    """, (username, ticket_id))
+        cursor.execute("""
+            UPDATE tickets
+            SET status = 'rejected',
+                rejected_at = CURRENT_TIMESTAMP,
+                rejected_by = %s
+            WHERE id = %s
+        """, (username, ticket_id))
 
-    conn.commit()
+        conn.commit()
 
-    cursor.execute("""
-        SELECT email, phone, email_notifications, sms_notifications
-        FROM users
-        WHERE username = ?
-    """, (ticket_username,))
+        cursor.execute("""
+            SELECT email, phone, email_notifications, sms_notifications
+            FROM users
+            WHERE username = %s
+        """, (ticket_username,))
 
-    user = cursor.fetchone()
+        user = cursor.fetchone()
 
-    if user:
-        if user["email_notifications"]:
-            send_email(
-                user["email"],
-                "Ticket Rejected",
-                "Your ticket has been rejected"
-            )
+        if user:
+            if user["email_notifications"]:
+                send_email(
+                    user["email"],
+                    "Ticket Rejected",
+                    "Your ticket has been rejected"
+                )
 
-        if user["sms_notifications"]:
-            send_sms(user["phone"], "Your ticket was rejected")
+            if user["sms_notifications"]:
+                send_sms(user["phone"], "Your ticket was rejected")
 
-    conn.close()
 
     return {"message": "Ticket rejected"}
 
 @app.post("/items")
 def create_item(data: ItemRequest):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute(
-        "INSERT INTO items (name, code) VALUES (?, ?)",
-        (data.name, data.code)
-    )
+        cursor.execute(
+            "INSERT INTO items (name, code) VALUES (%s, %s)",
+            (data.name, data.code)
+        )
 
-    conn.commit()
-    conn.close()
+        conn.commit()
 
     return {"message": "Item created"}
 
 
 @app.post("/login")
 def login(data: LoginRequest):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    cursor.execute(
-        "SELECT * FROM users WHERE username = ?",
-        (data.username,)
-    )
+        cursor.execute(
+            "SELECT * FROM users WHERE username = %s",
+            (data.username,)
+        )
 
-    user = cursor.fetchone()
-    conn.close()
+        user = cursor.fetchone()
 
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username")
@@ -831,20 +785,19 @@ def login(data: LoginRequest):
 }
 @app.get("/search")
 def search_items(q: str):
-    conn = get_db()
-    cursor = conn.cursor()
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    words = q.split()
-    query = " AND ".join(["name LIKE ?" for _ in words])
-    params = [f"%{word}%" for word in words]
+        words = q.split()
+        query = " AND ".join(["name LIKE %s" for _ in words])
+        params = [f"%{word}%" for word in words]
 
-    cursor.execute(f"""
-        SELECT id, name, code FROM items
-        WHERE {query}
-        LIMIT 20
-    """, params)
+        cursor.execute(f"""
+            SELECT id, name, code FROM items
+            WHERE {query}
+            LIMIT 20
+        """, params)
 
-    results = cursor.fetchall()
-    conn.close()
+        results = cursor.fetchall()
 
     return [dict(row) for row in results]
