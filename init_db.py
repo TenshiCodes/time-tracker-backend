@@ -1,55 +1,41 @@
-import sqlite3
-from passlib.context import CryptContext
 import os
+import psycopg2
+from passlib.context import CryptContext
+
 print("Running from:", os.getcwd())
+
 # 🔐 Password hashing
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 def hash_password(password):
-    # bcrypt max length = 72 bytes
     password = password.encode("utf-8")[:72]
     return pwd_context.hash(password)
 
-# 🔌 Connect to DB
-conn = sqlite3.connect("app.db")
+# 🔌 Connect to Postgres (Render)
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Fix for Render (sometimes uses postgres://)
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
+
+conn = psycopg2.connect(DATABASE_URL)
 cursor = conn.cursor()
 
 # =========================
-# 🧱 CREATE ITEMS TABLE
+# 🧱 CREATE TABLES
 # =========================
+
 cursor.execute("""
-               
 CREATE TABLE IF NOT EXISTS items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     code TEXT NOT NULL
 )
 """)
 
-# =========================
-# 🧱 CREATE time_entries TABLE
-# =========================
-cursor.execute("""
-      
-CREATE TABLE IF NOT EXISTS time_entries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    date TEXT NOT NULL,              -- 'YYYY-MM-DD'
-    clock_in DATETIME,
-    clock_out DATETIME,
-    total_hours REAL,
-    notes TEXT,
-    edited INTEGER DEFAULT 0,        -- 0 = no edit, 1 = edited
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    item_id INTEGER,
-    job_code TEXT,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-)
-""")
-
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     first_name TEXT,
     last_name TEXT,
     email TEXT,
@@ -57,28 +43,50 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL,
-    email_notifications BOOLEAN DEFAULT 0,
-    sms_notifications BOOLEAN DEFAULT 0
+    email_notifications BOOLEAN DEFAULT FALSE,
+    sms_notifications BOOLEAN DEFAULT FALSE
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS time_entries (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    date DATE NOT NULL,
+    clock_in TIMESTAMP,
+    clock_out TIMESTAMP,
+    total_hours REAL,
+    notes TEXT,
+    edited BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    item_id INTEGER,
+    job_code TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id)
 )
 """)
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS tickets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     description TEXT NOT NULL,
     status TEXT DEFAULT 'pending',
     username TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    approved_at DATETIME,
-    rejected_at DATETIME,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    approved_at TIMESTAMP,
+    rejected_at TIMESTAMP,
     approved_by TEXT,
     rejected_by TEXT
 )
 """)
-# 🔹 Reset items (optional for dev)
+
+# =========================
+# 🔹 RESET ITEMS (optional)
+# =========================
 cursor.execute("DELETE FROM items")
 
-# 🔹 Insert sample items
+# =========================
+# 🔹 INSERT ITEMS
+# =========================
 sample_items = [
     ("LAX: Front End Engineering", "J_SCA000906"),
     ("Project Allée", "J_SCA000926"),
@@ -227,12 +235,13 @@ sample_items = [
 ]
 
 cursor.executemany(
-    "INSERT INTO items (name, code) VALUES (?, ?)",
+    "INSERT INTO items (name, code) VALUES (%s, %s)",
     sample_items
 )
 
-
-# 🔹 Insert users (safe with IGNORE)
+# =========================
+# 🔹 INSERT USERS
+# =========================
 users = [
     ("Admin", "User", "admin@email.com", "1234567890", "admin", hash_password("admin123"), "admin", 0, 0),
     ("Angel", "Cazares", "angel@email.com", "1234567890", "angel", hash_password("password123"), "user", 0, 0),
@@ -240,18 +249,19 @@ users = [
 
 cursor.executemany(
     """
-    INSERT OR IGNORE INTO users 
+    INSERT INTO users 
     (first_name, last_name, email, phone, username, password_hash, role, email_notifications, sms_notifications)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (username) DO NOTHING
     """,
     users
 )
-
 
 # =========================
 # 💾 SAVE & CLOSE
 # =========================
 conn.commit()
+cursor.close()
 conn.close()
 
-print("✅ Database initialized (items + users)")
+print("✅ Postgres DB initialized")
