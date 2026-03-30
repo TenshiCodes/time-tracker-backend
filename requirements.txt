@@ -6,3 +6,4 @@ pydantic
 twilio
 openpyxl
 python-dotenv
+psycopg2-binary
