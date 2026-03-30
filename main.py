@@ -117,10 +117,14 @@ class TimeUpdate(BaseModel):
 
 app = FastAPI()
 
-# Allow React frontend
+# ✅ PUT IT RIGHT HERE
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8081",
+        "http://localhost:3000",
+        "https://your-vercel-app.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
