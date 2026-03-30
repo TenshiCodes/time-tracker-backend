@@ -803,7 +803,7 @@ def search_items(q: str):
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         words = q.split()
-        query = " AND ".join(["name LIKE %s" for _ in words])
+        query = " AND ".join(["name ILIKE %s" for _ in words])
         params = [f"%{word}%" for word in words]
 
         cursor.execute(f"""
