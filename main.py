@@ -420,17 +420,13 @@ def get_time_status(user_id: int):
 def format_row(row):
     data = dict(row)
 
+    local_tz = ZoneInfo("America/Los_Angeles")  # 🔥 your timezone
+
     if data.get("clock_in"):
-        if isinstance(data["clock_in"], str):
-            data["clock_in"] = data["clock_in"].replace(" ", "T") + "Z"
-        else:
-            data["clock_in"] = data["clock_in"].isoformat()
+        data["clock_in"] = data["clock_in"].astimezone(local_tz).isoformat()
 
     if data.get("clock_out"):
-        if isinstance(data["clock_out"], str):
-            data["clock_out"] = data["clock_out"].replace(" ", "T") + "Z"
-        else:
-            data["clock_out"] = data["clock_out"].isoformat()
+        data["clock_out"] = data["clock_out"].astimezone(local_tz).isoformat()
 
     return data
 @app.get("/time/{user_id}")
@@ -447,18 +443,7 @@ def get_time_entries(user_id: int):
 
             results = cursor.fetchall()
 
-        # ✅ SAFE conversion (no crashes)
-        safe_results = []
-        for row in results:
-            r = dict(row)
-
-            for key, value in r.items():
-                if isinstance(value, datetime):
-                    r[key] = value.isoformat()
-
-            safe_results.append(r)
-
-        return safe_results
+        return [format_row(row) for row in results]
 
     except Exception as e:
         print("🔥 ERROR IN /time:", e)
