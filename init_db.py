@@ -243,8 +243,8 @@ cursor.executemany(
 # 🔹 INSERT USERS
 # =========================
 users = [
-    ("Admin", "User", "admin@email.com", "1234567890", "admin", hash_password("admin123"), "admin", False, False),
-    ("Angel", "Cazares", "angel@email.com", "1234567890", "angel", hash_password("password123"), "user", False, False),
+    ("Admin", "User", "admin@email.com", "1234567890", "admin", hash_password(""), "admin", False, False),
+    ("Angel", "Cazares", "angel@email.com", "1234567890", "angel", hash_password(""), "user", False, False),
 ]
 
 cursor.executemany(
