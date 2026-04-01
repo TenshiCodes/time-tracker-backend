@@ -225,15 +225,17 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
     ws.append(["Start", "End", "Job", "Hours"])
 
     for row in rows:
-        _, start, end, job = row
+        start = row["clock_in"]
+        end = row["clock_out"]
+        job = row["job_code"]
         hours = 0
 
         if start and end:
-            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(ZoneInfo(tz))
-            end_dt = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(ZoneInfo(tz))
+            start_dt = start.astimezone(ZoneInfo(tz))
+            end_dt = end.astimezone(ZoneInfo(tz))
 
             if end_dt < start_dt:
-                end_dt += timedelta(hours=12)  # simple fix
+                end_dt += timedelta(days=1)
 
             diff = end_dt - start_dt
             hours = round(diff.total_seconds() / 3600, 2)
@@ -284,13 +286,14 @@ def export_time_entries(tz: str = "UTC"):
     ws.append(["Start", "End", "Job", "Hours"])
 
     for row in rows:
-        _, date, start, end, job = row
-
+        start = row["clock_in"]
+        end = row["clock_out"]
+        job = row["job_code"]
         hours = 0
         
         if start and end:
-            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(ZoneInfo(tz))
-            end_dt = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(ZoneInfo(tz))
+            start_dt = start.astimezone(ZoneInfo(tz))
+            end_dt = end.astimezone(ZoneInfo(tz))
 
             if end_dt < start_dt:
                 diff_hours = (start_dt - end_dt).total_seconds() / 3600
