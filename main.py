@@ -120,15 +120,10 @@ app = FastAPI()
 # ✅ PUT IT RIGHT HERE
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8081",
-        "http://localhost:3000",
-        "https://testtimeapp.vercel.app"
-    ],
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_origins=["*"],  # 🔥 DEV ONLY - CHANGE THIS IN PRODUCTION
 )
 @app.options("/{rest_of_path:path}")
 def preflight_handler(rest_of_path: str):
