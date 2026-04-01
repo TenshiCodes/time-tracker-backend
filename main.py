@@ -143,7 +143,7 @@ def verify_password(plain, hashed):
     return pwd_context.verify(plain, hashed)
 
 @app.get("/calendar/event/{entry_id}")
-def create_calendar_event(entry_id: int):
+def create_calendar_event(entry_id: int,tz: str = "UTC"):
     with get_db() as conn:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -168,8 +168,8 @@ def create_calendar_event(entry_id: int):
     uid = str(uuid.uuid4())
     dtstamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-    start_dt = datetime.fromisoformat(start).replace(tzinfo=timezone.utc)
-    end_dt = datetime.fromisoformat(end).replace(tzinfo=timezone.utc)
+    start_dt = start.astimezone(ZoneInfo(tz))
+    end_dt = end.astimezone(ZoneInfo(tz))
 
     start_str = start_dt.strftime("%Y%m%dT%H%M%S")
     end_str = end_dt.strftime("%Y%m%dT%H%M%S")
