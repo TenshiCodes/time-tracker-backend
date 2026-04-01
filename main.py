@@ -512,6 +512,7 @@ def update_entry(entry_id: int, data: dict):
 
 @app.put("/users/{user_id}/settings")
 def update_settings(user_id: int, data: dict):
+    print("🔥 HIT SETTINGS ENDPOINT", user_id, data)
     with get_db() as conn:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
