@@ -231,8 +231,15 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
         hours = 0
 
         if start and end:
-            start_dt = start.astimezone(ZoneInfo(tz))
-            end_dt = end.astimezone(ZoneInfo(tz))
+            print("RAW START:", start, type(start))
+            print("RAW END:", end, type(end))
+
+            # 🔥 FIX: attach UTC before converting
+            start_dt = start.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz))
+            end_dt = end.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz))
+
+            print("LOCAL START:", start_dt)
+            print("LOCAL END:", end_dt)
 
             if end_dt < start_dt:
                 end_dt += timedelta(days=1)
