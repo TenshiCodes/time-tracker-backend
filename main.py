@@ -201,83 +201,93 @@ def create_calendar_event(entry_id: int):
     )
 @app.post("/export/email/{user_id}")
 def email_time_entries(user_id: int, tz: str = "UTC"):
-    with get_db() as conn:
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # 🔍 get user email
-        cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
-        user = cursor.fetchone()
+            # 🔍 get user email
+            cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
+            user = cursor.fetchone()
 
-        if not user:
-            raise HTTPException(404, "User not found")
+            if not user:
+                raise HTTPException(404, "User not found")
 
-        email_to = user["email"]
+            email_to = user["email"]
 
-        # 🔍 get time entries
-        cursor.execute("SELECT date, clock_in, clock_out, job_code FROM time_entries WHERE user_id = %s", (user_id,))
-        rows = cursor.fetchall()
+            # 🔍 get time entries
+            cursor.execute("""
+                SELECT clock_in, clock_out, job_code 
+                FROM time_entries 
+                WHERE user_id = %s
+            """, (user_id,))
+            rows = cursor.fetchall()
 
-    # 📄 create Excel
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Time Entries"
+        # 📄 create Excel
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Time Entries"
 
-    ws.append(["Start", "End", "Job", "Hours"])
+        ws.append(["Start", "End", "Job", "Hours"])
 
-    for row in rows:
-        start = row["clock_in"]
-        end = row["clock_out"]
-        job = row["job_code"]
-        hours = 0
+        for row in rows:
+            start = row["clock_in"]
+            end = row["clock_out"]
+            job = row["job_code"]
+            hours = 0
 
-        if start and end:
-            print("RAW START:", start, type(start))
-            print("RAW END:", end, type(end))
+            if start and end:
+                # 🔥 FIX: only add tz if missing
+                if start.tzinfo is None:
+                    start = start.replace(tzinfo=timezone.utc)
 
-            # 🔥 FIX: attach UTC before converting
-            start_dt = start.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz))
-            end_dt = end.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz))
+                if end.tzinfo is None:
+                    end = end.replace(tzinfo=timezone.utc)
 
-            print("LOCAL START:", start_dt)
-            print("LOCAL END:", end_dt)
+                start_dt = start.astimezone(ZoneInfo(tz))
+                end_dt = end.astimezone(ZoneInfo(tz))
 
-            if end_dt < start_dt:
-                end_dt += timedelta(days=1)
+                if end_dt < start_dt:
+                    end_dt += timedelta(days=1)
 
-            diff = end_dt - start_dt
-            hours = round(diff.total_seconds() / 3600, 2)
+                diff = end_dt - start_dt
+                hours = round(diff.total_seconds() / 3600, 2)
 
-            start = start_dt.strftime("%m/%d/%Y %I:%M:%S %p")
-            end = end_dt.strftime("%m/%d/%Y %I:%M:%S %p")
+                start = start_dt.strftime("%m/%d/%Y %I:%M:%S %p")
+                end = end_dt.strftime("%m/%d/%Y %I:%M:%S %p")
 
-        ws.append([start, end, job, f"{hours:.2f}"])
+            ws.append([start, end, job, f"{hours:.2f}"])
 
-    file_path = "time_entries.xlsx"
-    wb.save(file_path)
+        file_path = "time_entries.xlsx"
+        wb.save(file_path)
 
-    # 📧 send email with attachment
-    msg = MIMEMultipart()
-    msg["Subject"] = "Your Time Entries"
-    msg["From"] = EMAIL_USER
-    msg["To"] = email_to
+        # 📧 send email with attachment
+        msg = MIMEMultipart()
+        msg["Subject"] = "Your Time Entries"
+        msg["From"] = EMAIL_USER
+        msg["To"] = email_to
 
-    # attach file
-    with open(file_path, "rb") as f:
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(f.read())
+        with open(file_path, "rb") as f:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(f.read())
 
-    encoders.encode_base64(part)
-    part.add_header("Content-Disposition", "attachment; filename=time_entries.xlsx")
-    msg.attach(part)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", "attachment; filename=time_entries.xlsx")
+        msg.attach(part)
 
-    # send
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(EMAIL_USER, EMAIL_PASS)
-        server.send_message(msg)
+        # 🔥 SEND EMAIL
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(EMAIL_USER, EMAIL_PASS)
+            server.send_message(msg)
 
-    return {"message": f"Email sent to {email_to}"}
+        print(f"✅ Email sent to {email_to}")
 
+        return {"message": f"Email sent to {email_to}"}
+
+    except Exception as e:
+        print("🔥 EMAIL EXPORT ERROR:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @app.get("/export/time")
 def export_time_entries(tz: str = "UTC"):
     with get_db() as db:
