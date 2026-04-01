@@ -508,24 +508,38 @@ def update_entry(entry_id: int, data: dict):
 
 @app.put("/users/{user_id}/settings")
 def update_settings(user_id: int, data: dict):
-    print("🔥 HIT SETTINGS ENDPOINT", user_id, data)
-    with get_db() as conn:
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        print("🔥 HIT SETTINGS ENDPOINT", user_id, data)
 
-        cursor.execute("""
-            UPDATE users
-            SET email_notifications = %s, sms_notifications = %s
-            WHERE id = %s
-        """, (
-            int(data.get("email_notifications", False)),
-            int(data.get("sms_notifications", False)),
-            user_id
-        ))
+        email_val = data.get("email_notifications", False)
+        sms_val = data.get("sms_notifications", False)
 
+        # ✅ Force boolean safely
+        email_val = True if email_val in [True, "true", 1, "1"] else False
+        sms_val = True if sms_val in [True, "true", 1, "1"] else False
 
-        conn.commit()
-    return {"message": "Settings updated"}
+        with get_db() as conn:
+            cursor = conn.cursor()
 
+            cursor.execute("""
+                UPDATE users
+                SET email_notifications = %s,
+                    sms_notifications = %s
+                WHERE id = %s
+            """, (
+                email_val,
+                sms_val,
+                user_id
+            ))
+
+            conn.commit()
+
+        return {"message": "Settings updated"}
+
+    except Exception as e:
+        print("🔥 SETTINGS ERROR:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @app.put("/users/{user_id}/role")
 def update_role(user_id: int, data: RoleUpdate):
     with get_db() as conn:
