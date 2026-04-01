@@ -128,7 +128,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_origins=["*"]  # 🔥 DEV ONLY - CHANGE THIS IN PRODUCTION
+    allow_origins=["*"],  # 🔥 DEV ONLY - CHANGE THIS IN PRODUCTION
 )
 @app.options("/{rest_of_path:path}")
 def preflight_handler(rest_of_path: str):
