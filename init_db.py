@@ -1,6 +1,11 @@
 import os
+from dotenv import load_dotenv
 import psycopg2
 from passlib.context import CryptContext
+
+# =========================
+# 🚀 LOAD ENV VARS
+load_dotenv()
 
 print("Running from:", os.getcwd())
 
