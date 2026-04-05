@@ -188,7 +188,7 @@ def forgot_password(data: dict):
         username = data.get("username")
 
         # 🔍 Find user
-        cursor.execute("SELECT id, email FROM users WHERE username=?", (username,))
+        cursor.execute("SELECT id, email FROM users WHERE username=%s", (username,))
         user = cursor.fetchone()
 
         if not user:
