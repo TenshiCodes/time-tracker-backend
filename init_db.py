@@ -253,20 +253,20 @@ cursor.executemany(
 # =========================
 # 🔹 INSERT USERS
 # =========================
-users = [
-    ("Admin", "User", "admin@email.com", "1234567890", "admin", hash_password(""), "admin", False, False),
-    ("Angel", "Cazares", "angel@email.com", "1234567890", "angel", hash_password(""), "user", False, False),
-]
+#users = [
+#    ("Admin", "User", "admin@email.com", "1234567890", "admin", hash_password(""), "admin", False, False),
+#    ("Angel", "Cazares", "angel@email.com", "1234567890", "angel", hash_password(""), "user", False, False),
+#]
 
-cursor.executemany(
-    """
-    INSERT INTO users 
-    (first_name, last_name, email, phone, username, password_hash, role, email_notifications, sms_notifications)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT (username) DO NOTHING
-    """,
-    users
-)
+#cursor.executemany(
+#    """
+#    INSERT INTO users 
+#    (first_name, last_name, email, phone, username, password_hash, role, email_notifications, sms_notifications)
+#    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+#    ON CONFLICT (username) DO NOTHING
+#    """,
+#    users
+#)
 
 # =========================
 # 💾 SAVE & CLOSE
