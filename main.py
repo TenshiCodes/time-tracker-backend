@@ -34,6 +34,7 @@ TWILIO_AUTH = os.getenv("TWILIO_AUTH")
 TWILIO_PHONE = os.getenv("TWILIO_PHONE")  # your Twilio number
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
+FRONTEND_URL = os.getenv("FRONTEND_URL")
 
 client = Client(TWILIO_SID, TWILIO_AUTH)
 
@@ -120,13 +121,13 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://testtimeapp.vercel.app"],
+    allow_origins=[FRONTEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-FRONTEND_URL = os.getenv("FRONTEND_URL")
+
 
 @app.options("/{rest_of_path:path}")
 def preflight_handler(rest_of_path: str):
