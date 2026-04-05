@@ -118,10 +118,9 @@ class TimeUpdate(BaseModel):
 
 app = FastAPI()
 
-# ✅ PUT IT RIGHT HERE
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["https://testtimeapp.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
