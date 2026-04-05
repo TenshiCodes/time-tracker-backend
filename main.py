@@ -214,9 +214,9 @@ def forgot_password(data: dict):
         reset_link = f"{FRONTEND_URL}/reset-password?token={token}"
 
         send_email(
-            to=email,
-            subject="Password Reset",
-            body=f"Click this link to reset your password:\n{reset_link}"
+            email,
+            "Password Reset",
+            f"Click this link to reset your password:\n{reset_link}"
         )
 
         return {"message": "Reset email sent"}
