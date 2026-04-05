@@ -57,10 +57,6 @@ CREATE TABLE IF NOT EXISTS users (
     reset_token_expiry TIMESTAMPTZ
 )
 """)
-cursor.execute("ALTER TABLE users ADD COLUMN reset_token TEXT")
-                            
-cursor.execute("ALTER TABLE users ADD COLUMN reset_token_expiry TIMESTAMPTZ")
-
 
 
 cursor.execute("""

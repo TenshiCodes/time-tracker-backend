@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 import psycopg2
 from zoneinfo import ZoneInfo
 import psycopg2.extras
+import secrets
 
 
 load_dotenv()
@@ -125,6 +126,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+FRONTEND_URL = os.getenv("FRONTEND_URL")
+
 @app.options("/{rest_of_path:path}")
 def preflight_handler(rest_of_path: str):
     return Response(status_code=200)
@@ -137,6 +141,46 @@ pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 def verify_password(plain, hashed):
     plain = plain.encode("utf-8")[:72]  # 🔥 fix bcrypt limit
     return pwd_context.verify(plain, hashed)
+
+@app.post("/forgot-password")
+def forgot_password(data: dict):
+     with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        username = data.get("username")
+
+        # 🔍 Find user
+        cursor.execute("SELECT id, email FROM users WHERE username=?", (username,))
+        user = cursor.fetchone()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user_id = user["id"]
+        email = user["email"]
+
+        # 🔐 Generate secure token
+        token = secrets.token_urlsafe(32)
+        expiry = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+
+        # 💾 Save token
+        cursor.execute("""
+            UPDATE users
+            SET reset_token=%s, reset_token_expiry=%s
+            WHERE id=%s
+        """, (token, expiry, user_id))
+
+        conn.commit()
+
+        # 📧 Send email (YOU already have this function)
+        reset_link = f"{FRONTEND_URL}/reset-password?token={token}"
+
+        send_email(
+            to=email,
+            subject="Password Reset",
+            body=f"Click this link to reset your password:\n{reset_link}"
+        )
+
+        return {"message": "Reset email sent"}
 
 @app.get("/calendar/event/{entry_id}")
 def create_calendar_event(entry_id: int,tz: str = "UTC"):
