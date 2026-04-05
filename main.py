@@ -165,7 +165,7 @@ def reset_password(data: dict):
         user_id, expiry = user
 
         # ⏱ Check expiration
-        if datetime.now(timezone.utc) > datetime.fromisoformat(expiry):
+        if datetime.now(timezone.utc) > expiry:
             raise HTTPException(status_code=400, detail="Token expired")
 
         # 🔐 Hash new password
@@ -200,7 +200,7 @@ def forgot_password(data: dict):
 
         # 🔐 Generate secure token
         token = secrets.token_urlsafe(32)
-        expiry = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        expiry = (datetime.now(timezone.utc) + timedelta(hours=1))
 
         # 💾 Save token
         cursor.execute("""
