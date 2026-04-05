@@ -162,7 +162,9 @@ def reset_password(data: dict):
         if not user:
             raise HTTPException(status_code=400, detail="Invalid token")
 
-        user_id, expiry = user
+        user_id = user["id"]
+        expiry = user["reset_token_expiry"]
+
         if isinstance(expiry, str):
             expiry = datetime.fromisoformat(expiry)
         # ⏱ Check expiration
@@ -202,8 +204,6 @@ def forgot_password(data: dict):
         # 🔐 Generate secure token
         token = secrets.token_urlsafe(32)
         expiry = (datetime.now(timezone.utc) + timedelta(hours=1))
-        if isinstance(expiry, str):
-            expiry = datetime.fromisoformat(expiry)
         # 💾 Save token
         cursor.execute("""
             UPDATE users
