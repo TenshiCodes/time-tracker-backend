@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 import psycopg2
 from passlib.context import CryptContext
+from sqlalchemy import TEXT
 
 # =========================
 # 🚀 LOAD ENV VARS
@@ -51,9 +52,16 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL,
     email_notifications BOOLEAN DEFAULT FALSE,
-    sms_notifications BOOLEAN DEFAULT FALSE
+    sms_notifications BOOLEAN DEFAULT FALSE,
+    reset_token TEXT,
+    reset_token_expiry TIMESTAMPTZ
 )
 """)
+cursor.execute("ALTER TABLE users ADD COLUMN reset_token TEXT")
+                            
+cursor.execute("ALTER TABLE users ADD COLUMN reset_token_expiry TIMESTAMPTZ")
+
+
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS time_entries (
