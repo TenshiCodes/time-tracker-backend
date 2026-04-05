@@ -142,6 +142,46 @@ def verify_password(plain, hashed):
     plain = plain.encode("utf-8")[:72]  # 🔥 fix bcrypt limit
     return pwd_context.verify(plain, hashed)
 
+
+@app.post("/reset-password")
+def reset_password(data: dict):
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        token = data.get("token")
+        new_password = data.get("password")
+
+        # 🔍 Find user by token
+        cursor.execute("""
+            SELECT id, reset_token_expiry
+            FROM users
+            WHERE reset_token=%s
+        """, (token,))
+
+        user = cursor.fetchone()
+
+        if not user:
+            raise HTTPException(status_code=400, detail="Invalid token")
+
+        user_id, expiry = user
+
+        # ⏱ Check expiration
+        if datetime.now(timezone.utc) > datetime.fromisoformat(expiry):
+            raise HTTPException(status_code=400, detail="Token expired")
+
+        # 🔐 Hash new password
+        hashed_pw = hash_password(new_password)
+
+        # 💾 Update password + clear token
+        cursor.execute("""
+            UPDATE users
+            SET password_hash=%s, reset_token=NULL, reset_token_expiry=NULL
+            WHERE id=%s
+        """, (hashed_pw, user_id))
+
+        conn.commit()
+
+        return {"message": "Password reset successful"}
+
 @app.post("/forgot-password")
 def forgot_password(data: dict):
      with get_db() as conn:
