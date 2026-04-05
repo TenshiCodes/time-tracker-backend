@@ -540,7 +540,7 @@ def get_time_entries(user_id: int):
             cursor.execute("""
                 SELECT * FROM time_entries
                 WHERE user_id = %s
-                ORDER BY date DESC
+                ORDER BY clock_in DESC, id DESC
             """, (user_id,))
 
             results = cursor.fetchall()
