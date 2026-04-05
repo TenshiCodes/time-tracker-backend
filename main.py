@@ -118,17 +118,15 @@ class TimeUpdate(BaseModel):
 
 app = FastAPI()
 
-FRONTEND_URL = os.getenv("FRONTEND_URL")
-
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL],
+    allow_origins=["https://testtimeapp.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+FRONTEND_URL = os.getenv("FRONTEND_URL")
 
 @app.options("/{rest_of_path:path}")
 def preflight_handler(rest_of_path: str):
