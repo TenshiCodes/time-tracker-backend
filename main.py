@@ -23,6 +23,7 @@ import psycopg2
 from zoneinfo import ZoneInfo
 import psycopg2.extras
 import secrets
+from workbook import build_timesheet_wb
 
 
 load_dotenv()
@@ -370,60 +371,29 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
         print("🔥 EMAIL EXPORT ERROR:", e)
         raise HTTPException(status_code=500, detail=str(e))
     
+
 @app.get("/export/time")
 def export_time_entries(tz: str = "UTC"):
     with get_db() as db:
         cursor = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        cursor.execute("SELECT id, date, clock_in, clock_out, job_code FROM time_entries")
-        rows = cursor.fetchall()
+        # Get time entries
+        cursor.execute("SELECT date, clock_in, clock_out, job_code FROM time_entries")
+        time_entries = cursor.fetchall()
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Time Entries"
+        # Get projects
+        cursor.execute("SELECT name, code FROM your_projects_table ORDER BY name;")
+        projects = cursor.fetchall()
 
-    ws.append(["Start", "End", "Job", "Hours"])
+    # Build workbook
+    wb = build_timesheet_wb(projects, time_entries, tz)
 
-    for row in rows:
-        start = row["clock_in"]
-        end = row["clock_out"]
-        job = row["job_code"]
-        hours = 0
-        
-        if start and end:
-            start_dt = start.astimezone(ZoneInfo(tz))
-            end_dt = end.astimezone(ZoneInfo(tz))
-
-            if end_dt < start_dt:
-                diff_hours = (start_dt - end_dt).total_seconds() / 3600
-
-                # 🔥 CASE 1: small difference → bad input → FIX to same day PM
-                if diff_hours <= 12:
-                    # assume PM mistake → add 12 hours
-                    end_dt += timedelta(hours=12)
-
-                # 🔥 CASE 2: large difference → real overnight
-                else:
-                    end_dt += timedelta(days=1)
-
-            diff = end_dt - start_dt
-            hours = round(diff.total_seconds() / 3600, 2)
-
-            start = start_dt.strftime("%m/%d/%Y %I:%M:%S %p")
-            end = end_dt.strftime("%m/%d/%Y %I:%M:%S %p")
-
-        ws.append([
-            start,
-            end,
-            job,
-            f"{hours:.2f}"
-        ])
-    file_path = "time_entries.xlsx"
+    file_path = "timesheet.xlsx"
     wb.save(file_path)
 
     return FileResponse(
         path=file_path,
-        filename="time_entries.xlsx",
+        filename="timesheet.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
