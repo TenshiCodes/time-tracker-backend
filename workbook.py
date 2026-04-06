@@ -94,8 +94,8 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
             ws.cell(row=row_index, column=1, value=start_dt)
             ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
-            ws.cell(row=row_index, column=2, value=write_hours)
-            ws.cell(row=row_index, column=2).number_format = "0.00"
+            ws.cell(row=row_index, column=2, value=write_hours / 24)
+            ws.cell(row=row_index, column=2).number_format = "[h]:mm"
 
             ws.cell(row=row_index, column=3, value=job_code)
             ws.cell(row=row_index, column=4, value=customer_name)
@@ -109,8 +109,8 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
             ws.cell(row=row_index, column=1, value=start_dt)
             ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
-            ws.cell(row=row_index, column=2, value=overflow)
-            ws.cell(row=row_index, column=2).number_format = "0.00"
+            ws.cell(row=row_index, column=2, value=overflow / 24)
+            ws.cell(row=row_index, column=2).number_format = "[h]:mm"
 
             ws.cell(row=row_index, column=3, value=job_code)
             ws.cell(row=row_index, column=4, value=customer_name)
