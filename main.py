@@ -385,7 +385,7 @@ def export_time_entries(user_id: int, tz: str = "UTC"):
 
     return FileResponse(
         path=file_path,
-        file_path = f"{fname}_{lname}_Timesheet.xlsx",
+        filename=f"{fname}_{lname}_Timesheet.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
