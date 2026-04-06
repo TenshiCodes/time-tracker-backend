@@ -16,7 +16,17 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     # -----------------------------------
     headers = ["Date", "Time {hh:mm}", "Project Number", "Customer", "Labor Type", "Description"]
     ws.append(headers)
+    # -----------------------------------
+    # ✅ LOOKUP SHEET (for Customer dropdown)
+    # -----------------------------------
+    ws_lookup = wb.create_sheet(title="Lookup")
 
+    for i, p in enumerate(projects, start=1):
+        ws_lookup.cell(row=i, column=1, value=p["name"])  # Customer
+        ws_lookup.cell(row=i, column=2, value=p["code"])  # Project Number
+
+    ws_lookup.sheet_state = "hidden"
+    max_row_lookup = len(projects)
     # -----------------------------------
     # ✅ PROJECT MAP (code → name)
     # -----------------------------------
@@ -158,6 +168,17 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
         formula1=f'"{",".join(labor_options)}"',
         allow_blank=True
     )
+    # -----------------------------------
+    # ✅ CUSTOMER DROPDOWN
+    # -----------------------------------
+    dv_customer = DataValidation(
+        type="list",
+        formula1=f'=Lookup!$A$1:$A${max_row_lookup}',
+        allow_blank=True
+    )
+
+    ws.add_data_validation(dv_customer)
+    dv_customer.add("D2:D200")
 
     ws.add_data_validation(dv)
     dv.add("E2:E200")
