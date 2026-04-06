@@ -78,11 +78,11 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     rows = 200
 
     rules = {
-        "B": '=AND($A2<>"", WEEKDAY($A2,2)<6, B2="")',
-        "C": '=AND($A2<>"", WEEKDAY($A2,2)<6, C2="")',
-        "D": '=AND($A2<>"", WEEKDAY($A2,2)<6, D2="")',
-        "E": '=AND($A2<>"", WEEKDAY($A2,2)<6, E2="")',
-        "F": '=AND($A2<>"", WEEKDAY($A2,2)<6, F2="")',
+        "B": '=AND($A2<>"", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $B2<>"")), B2="")',
+        "C": '=AND($A2<>"", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $B2<>"")), C2="")',
+        "D": '=AND($A2<>"", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $B2<>"")), D2="")',
+        "E": '=AND($A2<>"", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $B2<>"")), E2="")',
+        "F": '=AND($A2<>"", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $B2<>"")), F2="")',
     }
 
     for col, formula in rules.items():
