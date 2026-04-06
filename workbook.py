@@ -135,7 +135,7 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
             description = f"{start_dt.strftime('%H:%M')} - {end_dt.strftime('%H:%M')}"
 
         # ✅ WRITE ROW
-        ws.cell(row=row_index, column=1, value=start_dt)
+        ws.cell(row=row_index, column=1, value=start_dt.replace(tzinfo=None))
         ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
         ws.cell(row=row_index, column=2, value=duration_hours)  # THIS is the fix
