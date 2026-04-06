@@ -1,7 +1,6 @@
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
-from openpyxl.formatting.rule import FormulaRule
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
@@ -69,13 +68,13 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     dv_labor.add("E2:E500")
 
     # -------------------------------
-    # ✅ AUTO PROJECT NUMBER
+    # ✅ AUTO PROJECT NUMBER (still formula, optional)
     # -------------------------------
     for row in range(2, 500):
         ws.cell(row=row, column=3).value = f'=IFERROR(VLOOKUP(D{row},Lookup!A:B,2,FALSE),"")'
 
     # -------------------------------
-    # ✅ FILL DATA
+    # ✅ FILL DATA FIRST
     # -------------------------------
     row_index = 2
     project_map = {p["code"]: p["name"] for p in projects}
@@ -105,16 +104,11 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
             diff = end_dt - start_dt
             duration_hours = round(diff.total_seconds() / 3600, 2)
 
-        # ✅ WRITE DATA
+        # WRITE DATA
         ws.cell(row=row_index, column=1, value=start_dt)
         ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
-        # Treat 0 or None as blank
-        ws.cell(
-            row=row_index,
-            column=2,
-            value=duration_hours if duration_hours not in (0, None) else None
-        )
+        ws.cell(row=row_index, column=2, value=duration_hours)
         ws.cell(row=row_index, column=2).number_format = "0.00"
 
         ws.cell(row=row_index, column=3, value=job_code)
@@ -127,32 +121,32 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     last_row = row_index - 1
 
     # -------------------------------
-    # ✅ CONDITIONAL FORMATTING (FINAL FIX)
+    # ✅ APPLY FORMATTING LAST (NO FORMULAS)
     # -------------------------------
     red_fill = PatternFill(start_color="FFC7CE", fill_type="solid")
     blue_fill = PatternFill(start_color="D9EAF7", fill_type="solid")
 
-    rules = {
-        "B": '=AND($A2<>"", WEEKDAY($A2,2)<6, ISBLANK(B2))',
-        "C": '=AND($A2<>"", WEEKDAY($A2,2)<6, ISBLANK(C2))',
-        "D": '=AND($A2<>"", WEEKDAY($A2,2)<6, ISBLANK(D2))',
-        "E": '=AND($A2<>"", WEEKDAY($A2,2)<6, ISBLANK(E2))',
-        "F": '=AND($A2<>"", WEEKDAY($A2,2)<6, ISBLANK(F2))',
-    }
+    for row in range(2, last_row + 1):
+        date_cell = ws.cell(row=row, column=1)
+        date_val = date_cell.value
 
-    for col, formula in rules.items():
-        ws.conditional_formatting.add(
-            f"{col}2:{col}{last_row}",
-            FormulaRule(formula=[formula], fill=red_fill)
-        )
+        if not date_val:
+            continue
 
-    # Weekend highlight (Date column only)
-    ws.conditional_formatting.add(
-        f"A2:A{last_row}",
-        FormulaRule(
-            formula=['=AND(A2<>"", WEEKDAY(A2,2)>=6)'],
-            fill=blue_fill
-        )
-    )
+        # Python weekday (Mon=0, Sun=6)
+        is_weekend = date_val.weekday() >= 5
+
+        # 🔵 Highlight weekend DATE only
+        if is_weekend:
+            date_cell.fill = blue_fill
+            continue  # skip red checks for weekends
+
+        # 🔴 Highlight missing fields (weekday only)
+        for col in range(2, 7):
+            cell = ws.cell(row=row, column=col)
+
+            # IMPORTANT: keep 0.00 valid (only None or "" is missing)
+            if cell.value in (None, ""):
+                cell.fill = red_fill
 
     return wb
