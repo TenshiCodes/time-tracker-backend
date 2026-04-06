@@ -6,9 +6,10 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo
 from collections import defaultdict
 
-daily_totals = defaultdict(float)
 
 def build_timesheet_wb(projects, time_entries, tz="UTC"):
+    daily_totals = defaultdict(float)
+
     wb = Workbook()
     ws = wb.active
     ws.title = "Timesheet"
@@ -38,7 +39,7 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     # ✅ WRITE DATA
     # -----------------------------------
     row_index = 2
-
+    time_entries.sort(key=lambda x: x["clock_in"] or "")
     for row in time_entries:
         start = row["clock_in"]
         end = row["clock_out"]
@@ -70,30 +71,36 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
         # -----------------------------------
         current_total = daily_totals[entry_date]
 
-        if current_total + hours <= 8:
-            # NORMAL CASE
+        if current_total >= 8:
+            # ✅ Already full → everything is overflow
+            write_hours = 0
+            overflow = hours
+
+        elif current_total + hours <= 8:
+            # ✅ Normal case
             write_hours = hours
             overflow = 0
+
         else:
-            # SPLIT CASE
-            write_hours = max(0, 8 - current_total)
+            # ✅ Split case
+            write_hours = 8 - current_total
             overflow = hours - write_hours
 
         # -----------------------------------
         # ✅ WRITE MAIN ROW
         # -----------------------------------
-        ws.cell(row=row_index, column=1, value=start_dt)
-        ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
-
-        ws.cell(row=row_index, column=2, value=write_hours)
-        ws.cell(row=row_index, column=2).number_format = "0.00"
-
-        ws.cell(row=row_index, column=3, value=job_code)
-
         customer_name = project_map.get(job_code, "")
-        ws.cell(row=row_index, column=4, value=customer_name)
+        if write_hours > 0:
+            ws.cell(row=row_index, column=1, value=start_dt)
+            ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
-        row_index += 1
+            ws.cell(row=row_index, column=2, value=write_hours)
+            ws.cell(row=row_index, column=2).number_format = "0.00"
+
+            ws.cell(row=row_index, column=3, value=job_code)
+            ws.cell(row=row_index, column=4, value=customer_name)
+
+            row_index += 1
 
         # -----------------------------------
         # ✅ WRITE OVERFLOW ROW (if needed)
