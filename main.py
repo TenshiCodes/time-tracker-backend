@@ -289,14 +289,15 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
             # ✅ Get user email
-            cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
+            cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
             user = cursor.fetchone()
 
             if not user:
                 raise HTTPException(404, "User not found")
 
             email_to = user["email"]
-
+            fname = user["first_name"]
+            lname = user["last_name"]
             # ✅ SAME QUERY AS EXPORT
             cursor.execute("""
                 SELECT date, clock_in, clock_out, job_code
@@ -313,7 +314,7 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
         # ✅ BUILD USING SAME FUNCTION
         wb = build_timesheet_wb(projects, time_entries, tz)
 
-        file_path = "timesheet.xlsx"
+        file_path = f"{fname}_{lname}_Timesheet.xlsx"
         wb.save(file_path)
 
         # -----------------------------------
@@ -331,7 +332,7 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
         encoders.encode_base64(part)
         part.add_header(
             "Content-Disposition",
-            "attachment; filename=timesheet.xlsx"
+            f"attachment; filename={fname}_{lname}_Timesheet.xlsx"
         )
         msg.attach(part)
 
@@ -353,6 +354,15 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
 def export_time_entries(user_id: int, tz: str = "UTC"):
     with get_db() as db:
         cursor = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # ✅ Get user email
+        cursor.execute("SELECT first_name, last_name FROM users WHERE id = %s", (user_id,))
+        user = cursor.fetchone()
+
+        if not user:
+            raise HTTPException(404, "User not found")
+
+        fname = user["first_name"]
+        lname = user["last_name"]
 
         # Get time entries
         cursor.execute("""
@@ -370,12 +380,12 @@ def export_time_entries(user_id: int, tz: str = "UTC"):
     # Build workbook
     wb = build_timesheet_wb(projects, time_entries, tz)
 
-    file_path = "timesheet.xlsx"
+    file_path = f"{fname}_{lname}_Timesheet.xlsx"
     wb.save(file_path)
 
     return FileResponse(
         path=file_path,
-        filename="timesheet.xlsx",
+        file_path = f"{fname}_{lname}_Timesheet.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
