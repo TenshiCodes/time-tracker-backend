@@ -4,7 +4,9 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.formatting.rule import FormulaRule
 from datetime import timedelta
 from zoneinfo import ZoneInfo
+from collections import defaultdict
 
+daily_totals = defaultdict(float)
 
 def build_timesheet_wb(projects, time_entries, tz="UTC"):
     wb = Workbook()
@@ -46,8 +48,9 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
             continue
 
         start_dt = start.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
+        entry_date = start_dt.date()
 
-        hours = ""
+        hours = 0
 
         if end:
             end_dt = end.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
@@ -62,23 +65,55 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
             diff = end_dt - start_dt
             hours = round(diff.total_seconds() / 3600, 2)
 
-        # WRITE CELLS
+        # -----------------------------------
+        # ✅ CHECK DAILY LIMIT (8 HOURS)
+        # -----------------------------------
+        current_total = daily_totals[entry_date]
+
+        if current_total + hours <= 8:
+            # NORMAL CASE
+            write_hours = hours
+            overflow = 0
+        else:
+            # SPLIT CASE
+            write_hours = max(0, 8 - current_total)
+            overflow = hours - write_hours
+
+        # -----------------------------------
+        # ✅ WRITE MAIN ROW
+        # -----------------------------------
         ws.cell(row=row_index, column=1, value=start_dt)
         ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
-        ws.cell(row=row_index, column=2, value=hours)
+        ws.cell(row=row_index, column=2, value=write_hours)
         ws.cell(row=row_index, column=2).number_format = "0.00"
 
         ws.cell(row=row_index, column=3, value=job_code)
 
-        # ✅ Auto-fill customer from DB
         customer_name = project_map.get(job_code, "")
         ws.cell(row=row_index, column=4, value=customer_name)
 
-        # Description left blank (as requested)
-        ws.cell(row=row_index, column=6, value="")
-
         row_index += 1
+
+        # -----------------------------------
+        # ✅ WRITE OVERFLOW ROW (if needed)
+        # -----------------------------------
+        if overflow > 0:
+            ws.cell(row=row_index, column=1, value=start_dt)
+            ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
+
+            ws.cell(row=row_index, column=2, value=overflow)
+            ws.cell(row=row_index, column=2).number_format = "0.00"
+
+            ws.cell(row=row_index, column=3, value=job_code)
+            ws.cell(row=row_index, column=4, value=customer_name)
+
+            row_index += 1
+
+        # -----------------------------------
+        # ✅ UPDATE TOTAL
+        # -----------------------------------
+        daily_totals[entry_date] += hours
 
     # -----------------------------------
     # ✅ CONDITIONAL FORMATTING (EXACT ORIGINAL)
