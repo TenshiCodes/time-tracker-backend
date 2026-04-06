@@ -77,11 +77,11 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     blue_fill = PatternFill(start_color="D9EAF7", fill_type="solid")
 
     rules = {
-        "B": '=AND($A2<>"", WEEKDAY($A2,2)<6, B2="")',
-        "C": '=AND($A2<>"", WEEKDAY($A2,2)<6, C2="")',
-        "D": '=AND($A2<>"", WEEKDAY($A2,2)<6, D2="")',
-        "E": '=AND($A2<>"", WEEKDAY($A2,2)<6, E2="")',
-        "F": '=AND($A2<>"", WEEKDAY($A2,2)<6, F2="")',
+        "B": '=AND(ISNUMBER($A2), WEEKDAY($A2,2)<6, B2="")',
+        "C": '=AND(ISNUMBER($A2), WEEKDAY($A2,2)<6, C2="")',
+        "D": '=AND(ISNUMBER($A2), WEEKDAY($A2,2)<6, D2="")',
+        "E": '=AND(ISNUMBER($A2), WEEKDAY($A2,2)<6, E2="")',
+        "F": '=AND(ISNUMBER($A2), WEEKDAY($A2,2)<6, F2="")',
     }
 
     for col, formula in rules.items():
@@ -93,7 +93,7 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     ws.conditional_formatting.add(
         "A2:A200",
         FormulaRule(
-            formula=['=AND(A2<>"", WEEKDAY(A2,2)>=6)'],
+            formula=['=AND(ISNUMBER(A2), WEEKDAY(A2,2)>=6)'],
             fill=blue_fill
         )
     )
@@ -103,14 +103,25 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     # -------------------------------
     row_index = 2
 
+    project_map = {p["code"]: p["name"] for p in projects}
+
     for row in time_entries:
         start = row["clock_in"]
         end = row["clock_out"]
+        job_code = row["job_code"]
 
-        if start and end:
-            start_dt = start.astimezone(ZoneInfo(tz))
+        if not start:
+            continue
+
+        start_dt = start.astimezone(ZoneInfo(tz))
+
+        duration_hours = ""
+        description = ""
+
+        if end:
             end_dt = end.astimezone(ZoneInfo(tz))
 
+            # 🔥 Fix overnight / bad input
             if end_dt < start_dt:
                 diff_hours = (start_dt - end_dt).total_seconds() / 3600
                 if diff_hours <= 12:
@@ -118,13 +129,23 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
                 else:
                     end_dt += timedelta(days=1)
 
-            # Fill sheet
-            ws.cell(row=row_index, column=1, value=start_dt.date())
-            ws.cell(row=row_index, column=2, value=start_dt.strftime("%H:%M"))
-            ws.cell(row=row_index, column=6, value=f"{start_dt.strftime('%H:%M')} - {end_dt.strftime('%H:%M')}")
+            diff = end_dt - start_dt
+            duration_hours = round(diff.total_seconds() / 3600, 2)
 
-        # Project number from DB
-        ws.cell(row=row_index, column=3, value=row["job_code"])
+            description = f"{start_dt.strftime('%H:%M')} - {end_dt.strftime('%H:%M')}"
+
+        # ✅ WRITE ROW
+        ws.cell(row=row_index, column=1, value=start_dt)
+        ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
+
+        ws.cell(row=row_index, column=2, value=duration_hours)  # THIS is the fix
+
+        ws.cell(row=row_index, column=3, value=job_code)
+
+        # ✅ Auto customer from DB
+        customer_name = project_map.get(job_code, "")
+        ws.cell(row=row_index, column=4, value=customer_name)
+
 
         row_index += 1
 
