@@ -373,12 +373,17 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
     
 
 @app.get("/export/time")
-def export_time_entries(tz: str = "UTC"):
+def export_time_entries(user_id: int, tz: str = "UTC"):
     with get_db() as db:
         cursor = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         # Get time entries
-        cursor.execute("SELECT date, clock_in, clock_out, job_code FROM time_entries")
+        cursor.execute("""
+            SELECT date, clock_in, clock_out, job_code
+            FROM time_entries
+            WHERE user_id = %s
+            ORDER BY clock_in
+        """, (user_id,))
         time_entries = cursor.fetchall()
 
         # Get projects
