@@ -382,7 +382,7 @@ def export_time_entries(tz: str = "UTC"):
         time_entries = cursor.fetchall()
 
         # Get projects
-        cursor.execute("SELECT name, code FROM your_projects_table ORDER BY name;")
+        cursor.execute("SELECT name, code FROM items ORDER BY name;")
         projects = cursor.fetchall()
 
     # Build workbook
