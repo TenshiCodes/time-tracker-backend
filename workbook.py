@@ -1,5 +1,5 @@
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.formatting.rule import FormulaRule
 from datetime import timedelta
@@ -17,7 +17,6 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     headers = ["Date", "Time (hh:mm)", "Project Number", "Customer", "Labor Type", "Description"]
     ws.append(headers)
 
-    # Header style
     header_fill = PatternFill(start_color="C6E0B4", fill_type="solid")
 
     for col in range(1, len(headers) + 1):
@@ -28,7 +27,7 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
 
     ws.freeze_panes = "A2"
 
-    # Column widths (FIXES YOUR HEADER ISSUE)
+    # Column widths
     column_widths = [14, 18, 24, 30, 22, 40]
     for i, width in enumerate(column_widths, start=1):
         ws.column_dimensions[chr(64 + i)].width = width
@@ -106,11 +105,16 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
             diff = end_dt - start_dt
             duration_hours = round(diff.total_seconds() / 3600, 2)
 
-        # Write values
+        # ✅ WRITE DATA
         ws.cell(row=row_index, column=1, value=start_dt)
         ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
-        ws.cell(row=row_index, column=2, value=duration_hours)
+        # Treat 0 or None as blank
+        ws.cell(
+            row=row_index,
+            column=2,
+            value=duration_hours if duration_hours not in (0, None) else None
+        )
         ws.cell(row=row_index, column=2).number_format = "0.00"
 
         ws.cell(row=row_index, column=3, value=job_code)
@@ -123,17 +127,17 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     last_row = row_index - 1
 
     # -------------------------------
-    # ✅ CONDITIONAL FORMATTING (FIXED)
+    # ✅ CONDITIONAL FORMATTING (FINAL FIX)
     # -------------------------------
     red_fill = PatternFill(start_color="FFC7CE", fill_type="solid")
     blue_fill = PatternFill(start_color="D9EAF7", fill_type="solid")
 
     rules = {
-        "B": '=AND(ISNUMBER($A2), WEEKDAY($A2,2)<6, B2="")',
-        "C": '=AND(ISNUMBER($A2), WEEKDAY($A2,2)<6, C2="")',
-        "D": '=AND(ISNUMBER($A2), WEEKDAY($A2,2)<6, D2="")',
-        "E": '=AND(ISNUMBER($A2), WEEKDAY($A2,2)<6, E2="")',
-        "F": '=AND(ISNUMBER($A2), WEEKDAY($A2,2)<6, F2="")',
+        "B": '=AND($A2<>"", WEEKDAY($A2,2)<6, ISBLANK(B2))',
+        "C": '=AND($A2<>"", WEEKDAY($A2,2)<6, ISBLANK(C2))',
+        "D": '=AND($A2<>"", WEEKDAY($A2,2)<6, ISBLANK(D2))',
+        "E": '=AND($A2<>"", WEEKDAY($A2,2)<6, ISBLANK(E2))',
+        "F": '=AND($A2<>"", WEEKDAY($A2,2)<6, ISBLANK(F2))',
     }
 
     for col, formula in rules.items():
@@ -142,34 +146,13 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
             FormulaRule(formula=[formula], fill=red_fill)
         )
 
+    # Weekend highlight (Date column only)
     ws.conditional_formatting.add(
         f"A2:A{last_row}",
         FormulaRule(
-            formula=['=AND(ISNUMBER(A2), WEEKDAY(A2,2)>=6)'],
+            formula=['=AND(A2<>"", WEEKDAY(A2,2)>=6)'],
             fill=blue_fill
         )
     )
-
-    # -------------------------------
-    # ✅ BORDERS + ALIGNMENT (VISUAL FIX)
-    # -------------------------------
-    thin = Border(
-        left=Side(style="thin"),
-        right=Side(style="thin"),
-        top=Side(style="thin"),
-        bottom=Side(style="thin")
-    )
-
-    for row in ws.iter_rows(min_row=1, max_row=last_row, min_col=1, max_col=6):
-        for cell in row:
-            cell.border = thin
-
-    for row in range(2, last_row + 1):
-        ws.cell(row=row, column=1).alignment = Alignment(horizontal="center")
-        ws.cell(row=row, column=2).alignment = Alignment(horizontal="center")
-        ws.cell(row=row, column=3).alignment = Alignment(horizontal="center")
-
-    # Autofilter
-    ws.auto_filter.ref = f"A1:F{last_row}"
 
     return wb
