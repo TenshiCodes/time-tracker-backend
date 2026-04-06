@@ -1,6 +1,7 @@
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.formatting.rule import FormulaRule
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
@@ -10,74 +11,21 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     ws = wb.active
     ws.title = "Timesheet"
 
-    # -------------------------------
-    # ✅ HEADERS
-    # -------------------------------
-    headers = ["Date", "Time (hh:mm)", "Project Number", "Customer", "Labor Type", "Description"]
+    # -----------------------------------
+    # ✅ HEADERS FIRST
+    # -----------------------------------
+    headers = ["Date", "Time {hh:mm}", "Project Number", "Customer", "Labor Type", "Description"]
     ws.append(headers)
 
-    header_fill = PatternFill(start_color="C6E0B4", fill_type="solid")
-
-    for col in range(1, len(headers) + 1):
-        cell = ws.cell(row=1, column=col)
-        cell.fill = header_fill
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center")
-
-    ws.freeze_panes = "A2"
-
-    # Column widths
-    column_widths = [14, 18, 24, 30, 22, 40]
-    for i, width in enumerate(column_widths, start=1):
-        ws.column_dimensions[chr(64 + i)].width = width
-
-    # -------------------------------
-    # ✅ LOOKUP SHEET
-    # -------------------------------
-    ws_lookup = wb.create_sheet(title="Lookup")
-
-    for i, p in enumerate(projects, start=1):
-        ws_lookup.cell(row=i, column=1, value=p["name"])
-        ws_lookup.cell(row=i, column=2, value=p["code"])
-
-    ws_lookup.sheet_state = "hidden"
-    max_row_lookup = len(projects)
-
-    # -------------------------------
-    # ✅ DROPDOWNS
-    # -------------------------------
-    dv_customer = DataValidation(
-        type="list",
-        formula1=f'=Lookup!$A$1:$A${max_row_lookup}'
-    )
-    ws.add_data_validation(dv_customer)
-    dv_customer.add("D2:D500")
-
-    labor_options = [
-        "Labor", "Labor 1 X (Flex Time)", "Labor 1 X (Bonus OT)",
-        "Labor 1.5 X (Flex Time)", "Labor 1.5 X (Bonus OT)",
-        "Labor 2 X (Flex Time)", "Labor 2 X (Bonus OT)",
-        "Personal Vehicle Ground Travel", "Air Travel",
-        "PTO (Gusto)", "PTO (Embedded Contract)",
-        "PTO (Sabbatical)", "PTO (Flex Time)",
-        "Disability", "Company Holiday"
-    ]
-
-    dv_labor = DataValidation(type="list", formula1=f'"{",".join(labor_options)}"')
-    ws.add_data_validation(dv_labor)
-    dv_labor.add("E2:E500")
-
-    # -------------------------------
-    # ✅ AUTO PROJECT NUMBER (still formula, optional)
-    # -------------------------------
-    for row in range(2, 500):
-        ws.cell(row=row, column=3).value = f'=IFERROR(VLOOKUP(D{row},Lookup!A:B,2,FALSE),"")'
-
-    # -------------------------------
-    # ✅ FILL DATA FIRST
-    # -------------------------------
-    row_index = 2
+    # -----------------------------------
+    # ✅ PROJECT MAP (code → name)
+    # -----------------------------------
     project_map = {p["code"]: p["name"] for p in projects}
+
+    # -----------------------------------
+    # ✅ WRITE DATA
+    # -----------------------------------
+    row_index = 2
 
     for row in time_entries:
         start = row["clock_in"]
@@ -89,7 +37,7 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
 
         start_dt = start.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
 
-        duration_hours = None
+        hours = ""
 
         if end:
             end_dt = end.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
@@ -102,51 +50,116 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
                     end_dt += timedelta(days=1)
 
             diff = end_dt - start_dt
-            duration_hours = round(diff.total_seconds() / 3600, 2)
+            hours = round(diff.total_seconds() / 3600, 2)
 
-        # WRITE DATA
+        # WRITE CELLS
         ws.cell(row=row_index, column=1, value=start_dt)
         ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
-        ws.cell(row=row_index, column=2, value=duration_hours)
+        ws.cell(row=row_index, column=2, value=hours)
         ws.cell(row=row_index, column=2).number_format = "0.00"
 
         ws.cell(row=row_index, column=3, value=job_code)
 
+        # ✅ Auto-fill customer from DB
         customer_name = project_map.get(job_code, "")
         ws.cell(row=row_index, column=4, value=customer_name)
 
+        # Description left blank (as requested)
+        ws.cell(row=row_index, column=6, value="")
+
         row_index += 1
 
-    last_row = row_index - 1
+    # -----------------------------------
+    # ✅ CONDITIONAL FORMATTING (EXACT ORIGINAL)
+    # -----------------------------------
+    red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 
-    # -------------------------------
-    # ✅ APPLY FORMATTING LAST (NO FORMULAS)
-    # -------------------------------
-    red_fill = PatternFill(start_color="FFC7CE", fill_type="solid")
-    blue_fill = PatternFill(start_color="D9EAF7", fill_type="solid")
+    rows = 200
 
-    for row in range(2, last_row + 1):
-        date_cell = ws.cell(row=row, column=1)
-        date_val = date_cell.value
+    rules = {
+        "B": '=AND($A2<>"", WEEKDAY($A2,2)<6, B2="")',
+        "C": '=AND($A2<>"", WEEKDAY($A2,2)<6, C2="")',
+        "D": '=AND($A2<>"", WEEKDAY($A2,2)<6, D2="")',
+        "E": '=AND($A2<>"", WEEKDAY($A2,2)<6, E2="")',
+        "F": '=AND($A2<>"", WEEKDAY($A2,2)<6, F2="")',
+    }
 
-        if not date_val:
-            continue
+    for col, formula in rules.items():
+        ws.conditional_formatting.add(
+            f"{col}2:{col}{rows}",
+            FormulaRule(formula=[formula], fill=red_fill)
+        )
 
-        # Python weekday (Mon=0, Sun=6)
-        is_weekend = date_val.weekday() >= 5
+    blue_fill = PatternFill(start_color="D9EAF7", end_color="D9EAF7", fill_type="solid")
 
-        # 🔵 Highlight weekend DATE only
-        if is_weekend:
-            date_cell.fill = blue_fill
-            continue  # skip red checks for weekends
+    ws.conditional_formatting.add(
+        "A2:A200",
+        FormulaRule(
+            formula=['=AND(A2<>"", WEEKDAY(A2,2)>=6)'],
+            fill=blue_fill
+        )
+    )
 
-        # 🔴 Highlight missing fields (weekday only)
-        for col in range(2, 7):
-            cell = ws.cell(row=row, column=col)
+    # -----------------------------------
+    # ✅ HEADER STYLING
+    # -----------------------------------
+    header_fill = PatternFill(start_color="C6E0B4", end_color="C6E0B4", fill_type="solid")
+    header_font = Font(bold=True)
+    center_align = Alignment(horizontal="center", vertical="center")
 
-            # IMPORTANT: keep 0.00 valid (only None or "" is missing)
-            if cell.value in (None, ""):
-                cell.fill = red_fill
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin")
+    )
+
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = center_align
+        cell.border = thin_border
+
+    # Column widths
+    column_widths = [12, 14, 20, 25, 22, 40]
+    for i, width in enumerate(column_widths, start=1):
+        ws.column_dimensions[chr(64 + i)].width = width
+
+    ws.row_dimensions[1].height = 25
+
+    # Freeze
+    ws.freeze_panes = "A2"
+
+    # -----------------------------------
+    # ✅ LABOR DROPDOWN
+    # -----------------------------------
+    labor_options = [
+        "Labor",
+        "Labor 1 X (Flex Time)",
+        "Labor 1 X (Bonus OT)",
+        "Labor 1.5 X (Flex Time)",
+        "Labor 1.5 X (Bonus OT)",
+        "Labor 2 X (Flex Time)",
+        "Labor 2 X (Bonus OT)",
+        "Personal Vehicle Ground Travel",
+        "Air Travel",
+        "PTO (Gusto)",
+        "PTO (Embedded Contract)",
+        "PTO (Sabbatical)",
+        "PTO (Flex Time)",
+        "Disability",
+        "Company Holiday"
+    ]
+
+    dv = DataValidation(
+        type="list",
+        formula1=f'"{",".join(labor_options)}"',
+        allow_blank=True
+    )
+
+    ws.add_data_validation(dv)
+    dv.add("E2:E200")
 
     return wb
