@@ -464,9 +464,9 @@ def get_time_status(user_id: int):
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         cursor.execute("""
-            SELECT t.clock_in, t.job_code, j.name AS job_name
+            SELECT t.clock_in, t.job_code, i.name AS job_name
             FROM time_entries t
-            LEFT JOIN jobs j ON t.job_code = j.code
+            LEFT JOIN items i ON t.item_id = i.id
             WHERE t.user_id = %s AND t.clock_out IS NULL
             ORDER BY t.id DESC
             LIMIT 1
