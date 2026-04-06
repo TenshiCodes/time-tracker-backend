@@ -288,7 +288,7 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
         with get_db() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-            # 🔍 get user email
+            # ✅ Get user email
             cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
             user = cursor.fetchone()
 
@@ -297,55 +297,30 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
 
             email_to = user["email"]
 
-            # 🔍 get time entries
+            # ✅ SAME QUERY AS EXPORT
             cursor.execute("""
-                SELECT clock_in, clock_out, job_code 
-                FROM time_entries 
+                SELECT date, clock_in, clock_out, job_code
+                FROM time_entries
                 WHERE user_id = %s
+                ORDER BY clock_in
             """, (user_id,))
-            rows = cursor.fetchall()
+            time_entries = cursor.fetchall()
 
-        # 📄 create Excel
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Time Entries"
+            # ✅ SAME PROJECTS QUERY
+            cursor.execute("SELECT name, code FROM items ORDER BY name;")
+            projects = cursor.fetchall()
 
-        ws.append(["Start", "End", "Job", "Hours"])
+        # ✅ BUILD USING SAME FUNCTION
+        wb = build_timesheet_wb(projects, time_entries, tz)
 
-        for row in rows:
-            start = row["clock_in"]
-            end = row["clock_out"]
-            job = row["job_code"]
-            hours = 0
-
-            if start and end:
-                # 🔥 FIX: only add tz if missing
-                if start.tzinfo is None:
-                    start = start.replace(tzinfo=timezone.utc)
-
-                if end.tzinfo is None:
-                    end = end.replace(tzinfo=timezone.utc)
-
-                start_dt = start.astimezone(ZoneInfo(tz))
-                end_dt = end.astimezone(ZoneInfo(tz))
-
-                if end_dt < start_dt:
-                    end_dt += timedelta(days=1)
-
-                diff = end_dt - start_dt
-                hours = round(diff.total_seconds() / 3600, 2)
-
-                start = start_dt.strftime("%m/%d/%Y %I:%M:%S %p")
-                end = end_dt.strftime("%m/%d/%Y %I:%M:%S %p")
-
-            ws.append([start, end, job, f"{hours:.2f}"])
-
-        file_path = "time_entries.xlsx"
+        file_path = "timesheet.xlsx"
         wb.save(file_path)
 
-        # 📧 send email with attachment
+        # -----------------------------------
+        # 📧 EMAIL ATTACHMENT
+        # -----------------------------------
         msg = MIMEMultipart()
-        msg["Subject"] = "Your Time Entries"
+        msg["Subject"] = "Your Timesheet"
         msg["From"] = EMAIL_USER
         msg["To"] = email_to
 
@@ -354,10 +329,13 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
             part.set_payload(f.read())
 
         encoders.encode_base64(part)
-        part.add_header("Content-Disposition", "attachment; filename=time_entries.xlsx")
+        part.add_header(
+            "Content-Disposition",
+            "attachment; filename=timesheet.xlsx"
+        )
         msg.attach(part)
 
-        # 🔥 SEND EMAIL
+        # ✅ SEND EMAIL
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(EMAIL_USER, EMAIL_PASS)
@@ -370,7 +348,6 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
     except Exception as e:
         print("🔥 EMAIL EXPORT ERROR:", e)
         raise HTTPException(status_code=500, detail=str(e))
-    
 
 @app.get("/export/time")
 def export_time_entries(user_id: int, tz: str = "UTC"):
