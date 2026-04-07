@@ -190,6 +190,8 @@ def get_report(
             FROM time_entries t
             LEFT JOIN items j ON t.item_id = j.id
             WHERE 1=1
+            AND t.clock_in IS NOT NULL
+            AND t.clock_out IS NOT NULL
         """
 
         params = []
