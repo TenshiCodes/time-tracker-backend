@@ -91,7 +91,7 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
         # -----------------------------------
         customer_name = project_map.get(job_code, "")
         if write_hours > 0:
-            ws.cell(row=row_index, column=1, value=start_dt)
+            ws.cell(row=row_index, column=1, value=start_dt.date())
             ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
             ws.cell(row=row_index, column=2, value=write_hours / 24)
@@ -106,7 +106,7 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
         # ✅ WRITE OVERFLOW ROW (if needed)
         # -----------------------------------
         if overflow > 0:
-            ws.cell(row=row_index, column=1, value=start_dt)
+            ws.cell(row=row_index, column=1, value=start_dt.date())
             ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
             ws.cell(row=row_index, column=2, value=overflow / 24)

@@ -37,7 +37,7 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS items (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
-    code TEXT NOT NULL
+    code TEXT NOT NULL UNIQUE
 )
 """)
 
