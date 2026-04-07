@@ -141,8 +141,98 @@ pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 def verify_password(plain, hashed):
     plain = plain.encode("utf-8")[:72]  # 🔥 fix bcrypt limit
-    return pwd_context.verify(plain, hashed)
 
+    return pwd_context.verify(plain, hashed)
+@app.get("/admin/users")
+def get_users():
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cursor.execute("""
+            SELECT id, first_name, last_name
+            FROM users
+            ORDER BY first_name
+        """)
+
+        return cursor.fetchall()
+    
+
+@app.get("/admin/jobs")
+def get_jobs():
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cursor.execute("""
+            SELECT id, code, name
+            FROM items
+            ORDER BY code
+        """)
+
+        return cursor.fetchall()
+@app.get("/admin/report")
+def get_report(
+    user_id: int = None,
+    job_code: str = None,
+    start_date: str = None,
+    end_date: str = None
+):
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        query = """
+            SELECT 
+                t.id,
+                t.user_id,
+                t.clock_in,
+                t.clock_out,
+                t.job_code,
+                j.name AS job_name,
+                j.customer
+            FROM time_entries t
+            LEFT JOIN items j ON t.item_id = j.id
+            WHERE 1=1
+        """
+
+        params = []
+
+        if user_id:
+            query += " AND t.user_id = %s"
+            params.append(user_id)
+
+        if job_code:
+            query += " AND t.job_code = %s"
+            params.append(job_code)
+
+        if start_date:
+            query += " AND t.clock_in >= %s"
+            params.append(start_date)
+
+        if end_date:
+            query += " AND t.clock_in <= %s"
+            params.append(end_date)
+
+        query += " ORDER BY t.clock_in DESC"
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+    # 🔥 ADD IT RIGHT HERE 👇
+
+    total_seconds = 0
+
+    for row in rows:
+        if row["clock_out"]:
+            diff = row["clock_out"] - row["clock_in"]
+            total_seconds += diff.total_seconds()
+
+    total_hours = round(total_seconds / 3600, 2)
+
+    # 🔥 RETURN MODIFIED RESPONSE 👇
+    return {
+        "data": rows,
+        "total_hours": total_hours,
+        "total_seconds": total_seconds
+    }
 
 @app.post("/reset-password")
 def reset_password(data: dict):
