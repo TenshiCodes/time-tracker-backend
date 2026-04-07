@@ -186,8 +186,7 @@ def get_report(
                 t.clock_in,
                 t.clock_out,
                 t.job_code,
-                j.name AS job_name,
-                j.customer
+                j.name AS job_name
             FROM time_entries t
             LEFT JOIN items j ON t.item_id = j.id
             WHERE 1=1
