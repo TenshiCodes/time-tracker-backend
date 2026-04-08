@@ -555,10 +555,14 @@ def get_time_status(user_id: int):
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         cursor.execute("""
-            SELECT t.clock_in, t.job_code, i.name AS job_name
+            SELECT 
+                t.clock_in, 
+                t.job_code, 
+                i.name AS job_name
             FROM time_entries t
-            LEFT JOIN items i ON t.item_id = i.id
-            WHERE t.user_id = %s AND t.clock_out IS NULL
+            LEFT JOIN items i ON t.job_code = i.code
+            WHERE t.user_id = %s 
+            AND t.clock_out IS NULL
             ORDER BY t.id DESC
             LIMIT 1
         """, (user_id,))
@@ -572,7 +576,7 @@ def get_time_status(user_id: int):
         "clocked_in": True,
         "clock_in": entry["clock_in"],
         "job_code": entry["job_code"],
-        "job_name": entry["job_name"] or entry["job_code"],  # safe fallback
+        "job_name": entry["job_name"] or entry["job_code"],  # fallback still good
     }
 def format_row(row):
     data = dict(row)
