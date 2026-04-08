@@ -165,9 +165,15 @@ def build_report(projects, time_entries, tz="UTC"):
     # -----------------------------------
     # ✅ GRAND TOTAL (BOTTOM)
     # -----------------------------------
+    total_row = row_index + 1
     ws.cell(row=row_index + 1, column=2, value="TOTAL:")
     ws.cell(row=row_index + 1, column=3, value=grand_total / 24)
     ws.cell(row=row_index + 1, column=3).number_format = "[h]:mm"
+    # ✅ STYLE ROW
+    for col in range(1, 7):
+        cell = ws.cell(row=total_row, column=col)
+        cell.font = Font(bold=True)
+        cell.fill = grand_fill
     # -----------------------------------
     # ✅ CONDITIONAL FORMATTING (EXACT ORIGINAL)
     # -----------------------------------
