@@ -206,7 +206,7 @@ def get_report(
             params.append(job_code)
 
         if start_date:
-            query += " AND t.clock_in >= %s"
+            query += " AND t.clock_in >= %s::date"
             params.append(start_date)
 
         if end_date:
@@ -274,11 +274,11 @@ def export_report(
             params.append(job_code)
 
         if start_date:
-            query += " AND t.clock_in >= %s"
+            query += " AND t.clock_in >= %s::date"
             params.append(start_date)
 
         if end_date:
-            query += " AND t.clock_in <= %s"
+            query += " AND t.clock_in < %s::date + INTERVAL '1 day'"
             params.append(end_date)
 
         query += " ORDER BY t.clock_in DESC"
