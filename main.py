@@ -601,7 +601,7 @@ def clock_out(user_id: int):
 
         cursor.execute("""
             SELECT id, clock_in FROM time_entries
-            WHERE user_id = %s AND date = CURRENT_DATE
+            WHERE user_id = %s AND clock_out IS NULL
             ORDER BY id DESC LIMIT 1
         """, (user_id,))
 
