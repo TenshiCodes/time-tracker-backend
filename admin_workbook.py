@@ -23,7 +23,6 @@ def build_report(projects, time_entries, tz="UTC"):
     "Time {hh:mm}",
     "Project Number",
     "Customer",
-    "Daily Total",
     "Labor Type"
 ]
     ws.append(headers)
@@ -47,6 +46,7 @@ def build_report(projects, time_entries, tz="UTC"):
     # ✅ WRITE DATA
     # -----------------------------------
     row_index = 2
+    prev_date = None
     time_entries.sort(key=lambda x: x["clock_in"] or "")
     for row in time_entries:
         start = row["clock_in"]
@@ -58,7 +58,13 @@ def build_report(projects, time_entries, tz="UTC"):
 
         start_dt = start.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
         entry_date = start_dt.date()
+        if prev_date and entry_date != prev_date:
+            # 🔥 write daily total row BEFORE switching dates
+            ws.cell(row=row_index, column=2, value="DAILY TOTAL:")
+            ws.cell(row=row_index, column=3, value=daily_totals[prev_date] / 24)
+            ws.cell(row=row_index, column=3).number_format = "[h]:mm"
 
+            row_index += 1
         hours = 0
 
         if end:
@@ -101,12 +107,13 @@ def build_report(projects, time_entries, tz="UTC"):
         if write_hours > 0:
             ws.cell(row=row_index, column=1, value=start_dt.date())
             ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
+            ws.cell(row=row_index, column=2, value=full_name)
 
-            ws.cell(row=row_index, column=2, value=write_hours / 24)
-            ws.cell(row=row_index, column=2).number_format = "[h]:mm"
+            ws.cell(row=row_index, column=3, value=write_hours / 24)
+            ws.cell(row=row_index, column=3).number_format = "[h]:mm"
 
-            ws.cell(row=row_index, column=3, value=job_code)
-            ws.cell(row=row_index, column=4, value=customer_name)
+            ws.cell(row=row_index, column=4, value=job_code)
+            ws.cell(row=row_index, column=5, value=customer_name)
 
             row_index += 1
 
@@ -116,12 +123,12 @@ def build_report(projects, time_entries, tz="UTC"):
         if overflow > 0:
             ws.cell(row=row_index, column=1, value=start_dt.date())
             ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
+            ws.cell(row=row_index, column=2, value=full_name)
+            ws.cell(row=row_index, column=3, value=overflow / 24)
+            ws.cell(row=row_index, column=3).number_format = "[h]:mm"
 
-            ws.cell(row=row_index, column=2, value=overflow / 24)
-            ws.cell(row=row_index, column=2).number_format = "[h]:mm"
-
-            ws.cell(row=row_index, column=3, value=job_code)
-            ws.cell(row=row_index, column=4, value=customer_name)
+            ws.cell(row=row_index, column=4, value=job_code)
+            ws.cell(row=row_index, column=5, value=customer_name)
 
             row_index += 1
 
@@ -130,15 +137,17 @@ def build_report(projects, time_entries, tz="UTC"):
         # -----------------------------------
         daily_totals[entry_date] += hours
         grand_total += hours
+
+        prev_date = entry_date
     # -----------------------------------
     # ✅ FILL DAILY TOTAL COLUMN
     # -----------------------------------
-    for r in range(2, row_index):
-        date_cell = ws.cell(row=r, column=1).value
+    if prev_date:
+        ws.cell(row=row_index, column=2, value="DAILY TOTAL:")
+        ws.cell(row=row_index, column=3, value=daily_totals[prev_date] / 24)
+        ws.cell(row=row_index, column=3).number_format = "[h]:mm"
 
-        if date_cell in daily_totals:
-            ws.cell(row=r, column=6, value=daily_totals[date_cell] / 24)
-            ws.cell(row=r, column=6).number_format = "[h]:mm"
+        row_index += 1
     # -----------------------------------
     # ✅ GRAND TOTAL (BOTTOM)
     # -----------------------------------
@@ -153,11 +162,10 @@ def build_report(projects, time_entries, tz="UTC"):
     rows = 200
 
     rules = {
-        "B": '=AND($A2<>"", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $B2<>"")), B2="")',
-        "C": '=AND($A2<>"", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $B2<>"")), C2="")',
-        "D": '=AND($A2<>"", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $B2<>"")), D2="")',
-        "E": '=AND($A2<>"", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $B2<>"")), E2="")',
-        "F": '=AND($A2<>"", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $B2<>"")), F2="")',
+        "C": '=AND($A2<>"", $B2<>"DAILY TOTAL:", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $C2<>"")), C2="")',
+        "D": '=AND($A2<>"", $B2<>"DAILY TOTAL:", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $C2<>"")), D2="")',
+        "E": '=AND($A2<>"", $B2<>"DAILY TOTAL:", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $C2<>"")), E2="")',
+        "F": '=AND($A2<>"", $B2<>"DAILY TOTAL:", OR(WEEKDAY($A2,2)<6, AND(WEEKDAY($A2,2)>=6, $C2<>"")), F2="")',
     }
 
     for col, formula in rules.items():
