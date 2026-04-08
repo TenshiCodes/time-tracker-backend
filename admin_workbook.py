@@ -13,7 +13,8 @@ def build_report(projects, time_entries, tz="UTC"):
     wb = Workbook()
     ws = wb.active
     ws.title = "Timesheet"
-
+    daily_fill = PatternFill(start_color="EDEDED", end_color="EDEDED", fill_type="solid")
+    grand_fill = PatternFill(start_color="D6D6D6", end_color="D6D6D6", fill_type="solid")
     # -----------------------------------
     # ✅ HEADERS FIRST
     # -----------------------------------
@@ -63,6 +64,12 @@ def build_report(projects, time_entries, tz="UTC"):
             ws.cell(row=row_index, column=2, value="DAILY TOTAL:")
             ws.cell(row=row_index, column=3, value=daily_totals[prev_date] / 24)
             ws.cell(row=row_index, column=3).number_format = "[h]:mm"
+
+            # ✅ STYLE ROW
+            for col in range(1, 7):  # A → F
+                cell = ws.cell(row=row_index, column=col)
+                cell.font = Font(bold=True)
+                cell.fill = daily_fill
 
             row_index += 1
         hours = 0
@@ -144,8 +151,15 @@ def build_report(projects, time_entries, tz="UTC"):
     # -----------------------------------
     if prev_date:
         ws.cell(row=row_index, column=2, value="DAILY TOTAL:")
+        
         ws.cell(row=row_index, column=3, value=daily_totals[prev_date] / 24)
         ws.cell(row=row_index, column=3).number_format = "[h]:mm"
+
+        # ✅ STYLE ROW
+        for col in range(1, 7):
+            cell = ws.cell(row=row_index, column=col)
+            cell.font = Font(bold=True)
+            cell.fill = daily_fill
 
         row_index += 1
     # -----------------------------------
