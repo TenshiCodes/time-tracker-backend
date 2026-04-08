@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 import psycopg2.extras
 import secrets
 from workbook import build_timesheet_wb
+from admin_workbook import build_report
 from tempfile import NamedTemporaryFile
 
 load_dotenv()
@@ -247,16 +248,19 @@ def export_report(
 
         query = """
             SELECT 
-                t.id,
-                t.user_id,
-                t.clock_in,
-                t.clock_out,
-                t.job_code,
-                j.name AS job_name
-            FROM time_entries t
-            LEFT JOIN items j ON t.item_id = j.id
-            WHERE t.clock_in IS NOT NULL
-            AND t.clock_out IS NOT NULL
+            t.id,
+            t.user_id,
+            u.first_name,
+            u.last_name,
+            t.clock_in,
+            t.clock_out,
+            t.job_code,
+            j.name AS job_name
+        FROM time_entries t
+        LEFT JOIN items j ON t.item_id = j.id
+        LEFT JOIN users u ON t.user_id = u.id
+        WHERE t.clock_in IS NOT NULL
+        AND t.clock_out IS NOT NULL
         """
 
         params = []
@@ -290,7 +294,7 @@ def export_report(
         projects = cursor.fetchall()
 
     # 🔥 BUILD EXCEL
-    wb = build_timesheet_wb(projects, rows)
+    wb = build_report(projects, rows)
 
     # 🔥 SAVE TEMP FILE
     tmp = NamedTemporaryFile(delete=False, suffix=".xlsx")
