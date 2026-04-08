@@ -210,7 +210,7 @@ def get_report(
             params.append(start_date)
 
         if end_date:
-            query += " AND t.clock_in <= %s"
+            query += " AND t.clock_in < %s::date + INTERVAL '1 day'"
             params.append(end_date)
 
         query += " ORDER BY t.clock_in DESC"
