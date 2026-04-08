@@ -248,19 +248,19 @@ def export_report(
 
         query = """
             SELECT 
-            t.id,
-            t.user_id,
-            u.first_name,
-            u.last_name,
-            t.clock_in,
-            t.clock_out,
-            t.job_code,
-            j.name AS job_name
-        FROM time_entries t
-        LEFT JOIN items j ON t.item_id = j.id
-        LEFT JOIN users u ON t.user_id = u.id
-        WHERE t.clock_in IS NOT NULL
-        AND t.clock_out IS NOT NULL
+                t.id,
+                t.user_id,
+                u.first_name,
+                u.last_name,
+                t.clock_in,
+                t.clock_out,
+                t.job_code,
+                j.name AS job_name
+            FROM time_entries t
+            LEFT JOIN items j ON t.item_id = j.id
+            LEFT JOIN users u ON t.user_id = u.id
+            WHERE t.clock_in IS NOT NULL
+            AND t.clock_out IS NOT NULL
         """
 
         params = []
@@ -286,8 +286,7 @@ def export_report(
         cursor.execute(query, params)
         rows = cursor.fetchall()
 
-    # 🔥 GET PROJECTS (needed for workbook)
-    projects = []
+    # 🔥 GET PROJECTS
     with get_db() as conn:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cursor.execute("SELECT code, name FROM items")
@@ -296,14 +295,19 @@ def export_report(
     # 🔥 BUILD EXCEL
     wb = build_report(projects, rows)
 
-    # 🔥 SAVE TEMP FILE
-    tmp = NamedTemporaryFile(delete=False, suffix=".xlsx")
-    wb.save(tmp.name)
+    # 🔥 SAVE FILE (safer than NamedTemporaryFile open handle issues)
+    file_path = "admin_report.xlsx"
+    wb.save(file_path)
 
+    # 🔥 RETURN WITH PROPER HEADERS
     return FileResponse(
-        path=tmp.name,
+        path=file_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename="admin_report.xlsx",
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        headers={
+            "Content-Disposition": "attachment; filename=admin_report.xlsx",
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
     )
 
 @app.post("/reset-password")
