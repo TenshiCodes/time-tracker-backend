@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 import psycopg2.extras
 import secrets
 from workbook import build_timesheet_wb
-
+from tempfile import NamedTemporaryFile
 
 load_dotenv()
 
@@ -234,6 +234,73 @@ def get_report(
         "total_hours": total_hours,
         "total_seconds": total_seconds
     }
+
+@app.get("/admin/export")
+def export_report(
+    user_id: int = None,
+    job_code: str = None,
+    start_date: str = None,
+    end_date: str = None
+):
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        query = """
+            SELECT 
+                t.id,
+                t.user_id,
+                t.clock_in,
+                t.clock_out,
+                t.job_code,
+                j.name AS job_name
+            FROM time_entries t
+            LEFT JOIN items j ON t.item_id = j.id
+            WHERE t.clock_in IS NOT NULL
+            AND t.clock_out IS NOT NULL
+        """
+
+        params = []
+
+        if user_id:
+            query += " AND t.user_id = %s"
+            params.append(user_id)
+
+        if job_code:
+            query += " AND t.job_code = %s"
+            params.append(job_code)
+
+        if start_date:
+            query += " AND t.clock_in >= %s"
+            params.append(start_date)
+
+        if end_date:
+            query += " AND t.clock_in <= %s"
+            params.append(end_date)
+
+        query += " ORDER BY t.clock_in DESC"
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+    # 🔥 GET PROJECTS (needed for workbook)
+    projects = []
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute("SELECT code, name FROM items")
+        projects = cursor.fetchall()
+
+    # 🔥 BUILD EXCEL
+    wb = build_timesheet_wb(projects, rows)
+
+    # 🔥 SAVE TEMP FILE
+    tmp = NamedTemporaryFile(delete=False, suffix=".xlsx")
+    wb.save(tmp.name)
+
+    return FileResponse(
+        path=tmp.name,
+        filename="admin_report.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 @app.post("/reset-password")
 def reset_password(data: dict):
