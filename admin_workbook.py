@@ -251,9 +251,9 @@ def build_report(projects, time_entries, tz="UTC"):
     )
 
     ws.add_data_validation(dv_customer)
-    dv_customer.add("D2:D200")
+    dv_customer.add("E2:E200")
 
     ws.add_data_validation(dv)
-    dv.add("E2:E200")
+    dv.add("F2:F200")
 
     return wb
