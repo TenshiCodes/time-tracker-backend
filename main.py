@@ -107,11 +107,9 @@ class UserSettingsUpdate(BaseModel):
 class TimeEdit(BaseModel):
     clock_in: str
     clock_out: str
-    item_id: int
     job_code: str
 class ClockInRequest(BaseModel):
     user_id: int
-    item_id: int | None = None
     job_code: str | None = None
 
 class TimeUpdate(BaseModel):
@@ -257,7 +255,7 @@ def export_report(
                 t.job_code,
                 j.name AS job_name
             FROM time_entries t
-            LEFT JOIN items j ON t.item_id = j.id
+            LEFT JOIN items j ON t.job_code = j.code
             LEFT JOIN users u ON t.user_id = u.id
             WHERE t.clock_in IS NOT NULL
             AND t.clock_out IS NOT NULL
@@ -573,11 +571,10 @@ def clock_in(data: ClockInRequest):
         # ✅ FIX: include item_id + job_code
         cursor.execute("""
             INSERT INTO time_entries 
-            (user_id, date, clock_in, item_id, job_code)
-            VALUES (%s, CURRENT_DATE, NOW(), %s, %s)
+            (user_id, date, clock_in, job_code)
+            VALUES (%s, CURRENT_DATE, NOW(), %s)
         """, (
             data.user_id,
-            data.item_id,
             data.job_code
         ))
 
@@ -672,9 +669,13 @@ def get_time_entries(user_id: int):
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
             cursor.execute("""
-                SELECT * FROM time_entries
-                WHERE user_id = %s
-                ORDER BY clock_in DESC, id DESC
+                SELECT 
+                t.*,
+                i.name AS job_name
+            FROM time_entries t
+            LEFT JOIN items i ON t.job_code = i.code
+            WHERE t.user_id = %s
+            ORDER BY t.clock_in DESC, t.id DESC
             """, (user_id,))
 
             results = cursor.fetchall()
@@ -712,15 +713,14 @@ def update_entry(entry_id: int, data: dict):
 
         cursor.execute("""
             UPDATE time_entries
-            SET clock_in = %s, clock_out = %s, job_code = %s, item_id = %s
+            SET clock_in = %s, clock_out = %s, job_code = %s
             WHERE id = %s
         """, (
-            data.get("clock_in"),
-            data.get("clock_out"),
-            data.get("job_code"),
-            data.get("item_id"),
-            entry_id
-        ))
+                data.get("clock_in"),
+                data.get("clock_out"),
+                data.get("job_code"),
+                entry_id
+            ))
 
         conn.commit()
 
