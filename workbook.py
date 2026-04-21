@@ -41,9 +41,7 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     # -----------------------------------
     # ✅ WRITE DATA
     # -----------------------------------
-    grouped = OrderedDict(
-        sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1]))
-    )
+    grouped = OrderedDict()
 
     for row in time_entries:
         start = row["clock_in"]
@@ -73,6 +71,14 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
             grouped[key] = 0
 
         grouped[key] += hours
+
+    # -----------------------------------
+    # ✅ SORT GROUPED
+    # ----------------
+    grouped = OrderedDict(
+        sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1]))
+    )
+
     # -----------------------------------
     # ✅ CHECK DAILY LIMIT (8 HOURS)
     # -----------------------------------
