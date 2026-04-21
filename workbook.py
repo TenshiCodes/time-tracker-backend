@@ -4,7 +4,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.formatting.rule import FormulaRule
 from datetime import timedelta
 from zoneinfo import ZoneInfo
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 
 
 def build_timesheet_wb(projects, time_entries, tz="UTC"):
@@ -34,55 +34,60 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     # ✅ PROJECT MAP (code → name)
     # -----------------------------------
     project_map = {p["code"]: p["name"] for p in projects}
-
+    # -----------------------------------
+    # ✅ STEP 1: SORT ENTRIES (preserve order)
+    # -----------------------------------
+    time_entries.sort(key=lambda x: x["clock_in"] or "")
     # -----------------------------------
     # ✅ WRITE DATA
     # -----------------------------------
-    row_index = 2
-    time_entries.sort(key=lambda x: x["clock_in"] or "")
+    grouped = OrderedDict()
+
     for row in time_entries:
         start = row["clock_in"]
         end = row["clock_out"]
         job_code = row["job_code"]
 
-        if not start:
-            continue
+        if not start or not end:
+            continue  # skip incomplete entries
 
         start_dt = start.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
+        end_dt = end.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
+
+        # Fix bad timestamps
+        if end_dt < start_dt:
+            diff_hours = (start_dt - end_dt).total_seconds() / 3600
+            if diff_hours <= 12:
+                end_dt += timedelta(hours=12)
+            else:
+                end_dt += timedelta(days=1)
+
+        hours = round((end_dt - start_dt).total_seconds() / 3600, 2)
+
         entry_date = start_dt.date()
+        key = (entry_date, job_code)
 
-        hours = 0
+        if key not in grouped:
+            grouped[key] = 0
 
-        if end:
-            end_dt = end.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
-
-            if end_dt < start_dt:
-                diff_hours = (start_dt - end_dt).total_seconds() / 3600
-                if diff_hours <= 12:
-                    end_dt += timedelta(hours=12)
-                else:
-                    end_dt += timedelta(days=1)
-
-            diff = end_dt - start_dt
-            hours = round(diff.total_seconds() / 3600, 2)
-
+        grouped[key] += hours
         # -----------------------------------
         # ✅ CHECK DAILY LIMIT (8 HOURS)
         # -----------------------------------
+    row_index = 2
+
+    for (entry_date, job_code), hours in grouped.items():
         current_total = daily_totals[entry_date]
 
         if current_total >= 8:
-            # ✅ Already full → everything is overflow
             write_hours = 0
             overflow = hours
 
         elif current_total + hours <= 8:
-            # ✅ Normal case
             write_hours = hours
             overflow = 0
 
         else:
-            # ✅ Split case
             write_hours = 8 - current_total
             overflow = hours - write_hours
 
@@ -91,7 +96,7 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
         # -----------------------------------
         customer_name = project_map.get(job_code, "")
         if write_hours > 0:
-            ws.cell(row=row_index, column=1, value=start_dt.date())
+            ws.cell(row=row_index, column=1, value=entry_date)
             ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
             ws.cell(row=row_index, column=2, value=write_hours / 24)
@@ -106,7 +111,7 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
         # ✅ WRITE OVERFLOW ROW (if needed)
         # -----------------------------------
         if overflow > 0:
-            ws.cell(row=row_index, column=1, value=start_dt.date())
+            ws.cell(row=row_index, column=1, value=entry_date)
             ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
             ws.cell(row=row_index, column=2, value=overflow / 24)
