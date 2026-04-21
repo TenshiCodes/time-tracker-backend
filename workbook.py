@@ -41,7 +41,9 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     # -----------------------------------
     # ✅ WRITE DATA
     # -----------------------------------
-    grouped = OrderedDict()
+    grouped = OrderedDict(
+        sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1]))
+    )
 
     for row in time_entries:
         start = row["clock_in"]
@@ -71,61 +73,64 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
             grouped[key] = 0
 
         grouped[key] += hours
-        # -----------------------------------
-        # ✅ CHECK DAILY LIMIT (8 HOURS)
-        # -----------------------------------
+    # -----------------------------------
+    # ✅ CHECK DAILY LIMIT (8 HOURS)
+    # -----------------------------------
     row_index = 2
 
     for (entry_date, job_code), hours in grouped.items():
-        current_total = daily_totals[entry_date]
-
-        if current_total >= 8:
-            write_hours = 0
-            overflow = hours
-
-        elif current_total + hours <= 8:
-            write_hours = hours
-            overflow = 0
-
-        else:
-            write_hours = 8 - current_total
-            overflow = hours - write_hours
-
-        # -----------------------------------
-        # ✅ WRITE MAIN ROW
-        # -----------------------------------
         customer_name = project_map.get(job_code, "")
-        if write_hours > 0:
+        remaining_hours = hours
+
+        while remaining_hours > 0.0001:
+            current_total = daily_totals[entry_date]
+
+            # -----------------------------------
+            # ✅ DETERMINE TIER
+            # -----------------------------------
+            if current_total < 8:
+                tier_limit = 8
+                labor_type = "Labor"
+
+            elif current_total < 12:
+                tier_limit = 12
+                labor_type = "Labor 1.5 X (Bonus OT)"
+
+            else:
+                tier_limit = float("inf")
+                labor_type = "Labor 2 X (Bonus OT)"
+
+            # -----------------------------------
+            # ✅ CALCULATE AVAILABLE SPACE IN TIER
+            # -----------------------------------
+            available = tier_limit - current_total
+
+            # If already beyond 12, available is infinite
+            if tier_limit == float("inf"):
+                chunk = remaining_hours
+            else:
+                chunk = min(remaining_hours, available)
+
+            # -----------------------------------
+            # ✅ WRITE ROW
+            # -----------------------------------
             ws.cell(row=row_index, column=1, value=entry_date)
             ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
 
-            ws.cell(row=row_index, column=2, value=write_hours / 24)
+            ws.cell(row=row_index, column=2, value=chunk / 24)
             ws.cell(row=row_index, column=2).number_format = "[h]:mm"
 
             ws.cell(row=row_index, column=3, value=job_code)
             ws.cell(row=row_index, column=4, value=customer_name)
+            ws.cell(row=row_index, column=5, value=labor_type)
 
             row_index += 1
 
-        # -----------------------------------
-        # ✅ WRITE OVERFLOW ROW (if needed)
-        # -----------------------------------
-        if overflow > 0:
-            ws.cell(row=row_index, column=1, value=entry_date)
-            ws.cell(row=row_index, column=1).number_format = "m/d/yyyy"
-
-            ws.cell(row=row_index, column=2, value=overflow / 24)
-            ws.cell(row=row_index, column=2).number_format = "[h]:mm"
-
-            ws.cell(row=row_index, column=3, value=job_code)
-            ws.cell(row=row_index, column=4, value=customer_name)
-
-            row_index += 1
-
-        # -----------------------------------
-        # ✅ UPDATE TOTAL
-        # -----------------------------------
-        daily_totals[entry_date] += hours
+            # -----------------------------------
+            # ✅ UPDATE TRACKERS
+            # -----------------------------------
+            daily_totals[entry_date] += chunk
+            remaining_hours -= chunk
 
     # -----------------------------------
     # ✅ CONDITIONAL FORMATTING (EXACT ORIGINAL)
