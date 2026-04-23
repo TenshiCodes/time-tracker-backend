@@ -143,11 +143,11 @@ def get_db():
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 def verify_password(plain, hashed):
-    plain = plain.encode("utf-8")[:72]  # 🔥 fix bcrypt limit
-
+    if not plain or not hashed:
+        return False
     return pwd_context.verify(plain, hashed)
 @app.get("/admin/users")
-def get_users():
+def get_admin_users():
     with get_db() as conn:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -191,7 +191,7 @@ def get_report(
                 t.job_code,
                 j.job_name AS job_name
             FROM time_entries t
-            LEFT JOIN items j ON t.job_code = j.job_code
+            LEFT JOIN items j ON t.item_id = j.id
             WHERE 1=1
             AND t.clock_in IS NOT NULL
             AND t.clock_out IS NOT NULL
@@ -291,7 +291,7 @@ def export_report(
     # 🔥 GET PROJECTS
     with get_db() as conn:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cursor.execute("SELECT job_code, name FROM items")
+        cursor.execute("SELECT job_code, job_name FROM items")
         projects = cursor.fetchall()
 
     # 🔥 BUILD EXCEL
@@ -792,7 +792,7 @@ def get_single_entry(entry_id: int):
                 t.*,
                 i.job_name
             FROM time_entries t
-            LEFT JOIN items i ON t.job_code = i.job_code
+            LEFT JOIN items i ON t.item_id = i.id
             WHERE t.id = %s
         """, (entry_id,))
 

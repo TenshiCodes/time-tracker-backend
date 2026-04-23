@@ -46,7 +46,7 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     for row in time_entries:
         start = row["clock_in"]
         end = row["clock_out"]
-        job_code = row["job_code"]
+        job_code = row["job_code"] or ""
 
         if not start or not end:
             continue  # skip incomplete entries

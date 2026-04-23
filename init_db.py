@@ -37,7 +37,8 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS items (
     id SERIAL PRIMARY KEY,
     job_code TEXT NOT NULL,
-    job_name TEXT NOT NULL
+    job_name TEXT NOT NULL,
+    CONSTRAINT unique_job UNIQUE (job_code, job_name)
 )
 """)
 
