@@ -110,12 +110,14 @@ class TimeEdit(BaseModel):
     job_code: str
 class ClockInRequest(BaseModel):
     user_id: int
-    job_code: str | None = None
+    item_id: int
 
 class TimeUpdate(BaseModel):
     clock_in: str
     clock_out: str
     job_code: str | None = None
+class AssignJobsRequest(BaseModel):
+    item_ids: list[int]
 
 app = FastAPI()
 
@@ -558,27 +560,45 @@ def clock_in(data: ClockInRequest):
     with get_db() as conn:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
+        # ✅ ONLY check permission IF job is provided
+        if data.item_id:
+            cursor.execute("""
+                SELECT 1
+                FROM user_job_assignments
+                WHERE user_id = %s
+                AND item_id = %s
+            """, (data.user_id, data.item_id))
+
+            if not cursor.fetchone():
+                raise HTTPException(403, "Job not assigned to user")
+
         # prevent double clock in
         cursor.execute("""
-            SELECT * FROM time_entries 
+            SELECT 1 FROM time_entries 
             WHERE user_id = %s AND clock_out IS NULL
         """, (data.user_id,))
-        
+
         if cursor.fetchone():
-        
             raise HTTPException(400, "Already clocked in")
 
-        # ✅ FIX: include item_id + job_code
-        cursor.execute("""
-            INSERT INTO time_entries 
-            (user_id, date, clock_in, job_code)
-            VALUES (%s, CURRENT_DATE, NOW(), %s)
-        """, (
-            data.user_id,
-            data.job_code
-        ))
+        # ✅ INSERT (handle BOTH cases)
+        if data.item_id:
+            cursor.execute("""
+                INSERT INTO time_entries 
+                (user_id, date, clock_in, item_id, job_code)
+                SELECT %s, CURRENT_DATE, NOW(), i.id, i.code
+                FROM items i
+                WHERE i.id = %s
+            """, (data.user_id, data.item_id))
+        else:
+            cursor.execute("""
+                INSERT INTO time_entries 
+                (user_id, date, clock_in)
+                VALUES (%s, CURRENT_DATE, NOW())
+            """, (data.user_id,))
 
         conn.commit()
+
     return {"message": "Clocked in"}
 
 @app.get("/time/entry/{entry_id}")
@@ -709,18 +729,22 @@ def get_user(user_id: int):
 @app.put("/time/{entry_id}")
 def update_entry(entry_id: int, data: dict):
     with get_db() as conn:
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor = conn.cursor()
 
         cursor.execute("""
             UPDATE time_entries
-            SET clock_in = %s, clock_out = %s, job_code = %s
+            SET clock_in = %s,
+                clock_out = %s,
+                job_code = %s,
+                item_id = %s
             WHERE id = %s
         """, (
-                data.get("clock_in"),
-                data.get("clock_out"),
-                data.get("job_code"),
-                entry_id
-            ))
+            data.get("clock_in"),
+            data.get("clock_out"),
+            data.get("job_code"),
+            data.get("item_id"),   # ✅ ADD THIS
+            entry_id
+        ))
 
         conn.commit()
 
@@ -1049,20 +1073,57 @@ def login(data: LoginRequest):
     "role": user["role"]
 }
 @app.get("/search")
-def search_items(q: str):
+def search_items(q: str, user_id: int):
     with get_db() as conn:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         words = q.split()
-        query = " AND ".join(["name ILIKE %s" for _ in words])
+        query = " AND ".join(["i.name ILIKE %s" for _ in words])
         params = [f"%{word}%" for word in words]
 
         cursor.execute(f"""
-            SELECT id, name, code FROM items
-            WHERE {query}
-            LIMIT 20
-        """, params)
+            SELECT i.id, i.name, i.code
+            FROM items i
+            JOIN user_job_assignments uja ON uja.item_id = i.id
+            WHERE uja.user_id = %s
+            AND {query}
+        """, [user_id] + params)
 
-        results = cursor.fetchall()
+        return cursor.fetchall()
+@app.get("/admin/users/{user_id}/jobs")
+def get_user_jobs(user_id: int):
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    return [dict(row) for row in results]
+        cursor.execute("""
+            SELECT i.id, i.name, i.code
+            FROM user_job_assignments uja
+            JOIN items i ON uja.item_id = i.id
+            WHERE uja.user_id = %s
+        """, (user_id,))
+
+        return cursor.fetchall()
+
+
+@app.post("/admin/users/{user_id}/jobs")
+def assign_jobs(user_id: int, data: AssignJobsRequest):
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # 🔥 clear existing assignments
+        cursor.execute(
+            "DELETE FROM user_job_assignments WHERE user_id = %s",
+            (user_id,)
+        )
+
+        # 🔥 insert new ones safely
+        for item_id in data.item_ids:
+            cursor.execute("""
+                INSERT INTO user_job_assignments (user_id, item_id)
+                VALUES (%s, %s)
+                ON CONFLICT DO NOTHING
+            """, (user_id, item_id))
+
+        conn.commit()
+
+    return {"message": "Jobs assigned"}

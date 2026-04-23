@@ -36,10 +36,18 @@ cursor = conn.cursor()
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS items (
     id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    code TEXT NOT NULL UNIQUE
+    code TEXT NOT NULL,
+    name TEXT NOT NULL
 )
 """)
+
+cursor.execute("""
+CREATE TABLE user_job_assignments (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    item_id INTEGER REFERENCES items(id) ON DELETE CASCADE,
+    UNIQUE(user_id, item_id)
+)""")
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
