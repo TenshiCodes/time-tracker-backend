@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS items (
 """)
 
 cursor.execute("""
-CREATE TABLE user_job_assignments (
+CREATE TABLE IF NOT EXISTS user_job_assignments (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     item_id INTEGER REFERENCES items(id) ON DELETE CASCADE,
