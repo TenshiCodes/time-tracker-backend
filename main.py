@@ -164,7 +164,7 @@ def get_jobs():
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         cursor.execute("""
-            SELECT id, code, name
+            SELECT id, job_code, name
             FROM items
             ORDER BY code
         """)
@@ -289,7 +289,7 @@ def export_report(
     # 🔥 GET PROJECTS
     with get_db() as conn:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cursor.execute("SELECT code, name FROM items")
+        cursor.execute("SELECT job_code, name FROM items")
         projects = cursor.fetchall()
 
     # 🔥 BUILD EXCEL
@@ -474,7 +474,7 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
             time_entries = cursor.fetchall()
 
             # ✅ SAME PROJECTS QUERY
-            cursor.execute("SELECT name, code FROM items ORDER BY name;")
+            cursor.execute("SELECT job_name, code FROM items ORDER BY name;")
             projects = cursor.fetchall()
 
         # ✅ BUILD USING SAME FUNCTION
@@ -540,7 +540,7 @@ def export_time_entries(user_id: int, tz: str = "UTC"):
         time_entries = cursor.fetchall()
 
         # Get projects
-        cursor.execute("SELECT name, code FROM items ORDER BY name;")
+        cursor.execute("SELECT job_name, code FROM items ORDER BY name;")
         projects = cursor.fetchall()
 
     # Build workbook
@@ -649,7 +649,7 @@ def get_time_status(user_id: int):
         cursor.execute("""
             SELECT 
                 t.clock_in, 
-                t.job_code, 
+                t.job_job_code, 
                 i.job_name AS job_name
             FROM time_entries t
             LEFT JOIN items i ON t.job_code = i.job_code
