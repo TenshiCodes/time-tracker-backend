@@ -113,9 +113,11 @@ class ClockInRequest(BaseModel):
     item_id: Optional[int] = None
 
 class TimeUpdate(BaseModel):
-    clock_in: str
-    clock_out: str
+    clock_in: str | None = None
+    clock_out: str | None = None
     job_code: str | None = None
+    item_id: int | None = None
+    
 class AssignJobsRequest(BaseModel):
     item_ids: list[int]
 
@@ -756,7 +758,7 @@ def get_user(user_id: int):
     return dict(user)
 
 @app.put("/time/{entry_id}")
-def update_entry(entry_id: int, data: dict):
+def update_entry(entry_id: int, data: TimeUpdate):
     with get_db() as conn:
         cursor = conn.cursor()
 
@@ -768,10 +770,10 @@ def update_entry(entry_id: int, data: dict):
                 item_id = %s
             WHERE id = %s
         """, (
-            data.get("clock_in"),
-            data.get("clock_out"),
-            data.get("job_code"),
-            data.get("item_id"),   # ✅ ADD THIS
+            data.clock_in,
+            data.clock_out,
+            data.job_code,
+            data.item_id,
             entry_id
         ))
 
