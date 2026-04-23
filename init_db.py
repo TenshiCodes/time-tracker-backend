@@ -36,8 +36,8 @@ cursor = conn.cursor()
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS items (
     id SERIAL PRIMARY KEY,
-    code TEXT NOT NULL,
-    name TEXT NOT NULL
+    job_code TEXT NOT NULL,
+    job_name TEXT NOT NULL
 )
 """)
 
@@ -254,7 +254,7 @@ sample_items = [
 ]
 
 cursor.executemany(
-    "INSERT INTO items (name, code) VALUES (%s, %s)",
+    "INSERT INTO items (job_name, job_code) VALUES (%s, %s)",
     sample_items
 )
 
