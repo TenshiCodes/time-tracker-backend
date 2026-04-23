@@ -187,9 +187,9 @@ def get_report(
                 t.clock_in,
                 t.clock_out,
                 t.job_code,
-                j.name AS job_name
+                j.job_name AS job_name
             FROM time_entries t
-            LEFT JOIN items j ON t.job_code = j.code
+            LEFT JOIN items j ON t.job_code = j.job_code
             WHERE 1=1
             AND t.clock_in IS NOT NULL
             AND t.clock_out IS NOT NULL
@@ -255,9 +255,9 @@ def export_report(
                 t.clock_in,
                 t.clock_out,
                 t.job_code,
-                j.name AS job_name
+                j.job_name AS job_name
             FROM time_entries t
-            LEFT JOIN items j ON t.job_code = j.code
+            LEFT JOIN items j ON t.job_code = j.job_code
             LEFT JOIN users u ON t.user_id = u.id
             WHERE t.clock_in IS NOT NULL
             AND t.clock_out IS NOT NULL
@@ -586,7 +586,7 @@ def clock_in(data: ClockInRequest):
             cursor.execute("""
                 INSERT INTO time_entries 
                 (user_id, date, clock_in, item_id, job_code)
-                SELECT %s, CURRENT_DATE, NOW(), i.id, i.code
+                SELECT %s, CURRENT_DATE, NOW(), i.id, i.job_code
                 FROM items i
                 WHERE i.id = %s
             """, (data.user_id, data.item_id))
@@ -650,9 +650,9 @@ def get_time_status(user_id: int):
             SELECT 
                 t.clock_in, 
                 t.job_code, 
-                i.name AS job_name
+                i.job_name AS job_name
             FROM time_entries t
-            LEFT JOIN items i ON t.job_code = i.code
+            LEFT JOIN items i ON t.job_code = i.job_code
             WHERE t.user_id = %s 
             AND t.clock_out IS NULL
             ORDER BY t.id DESC
@@ -691,9 +691,9 @@ def get_time_entries(user_id: int):
             cursor.execute("""
                 SELECT 
                 t.*,
-                i.name AS job_name
+                i.job_name AS job_name
             FROM time_entries t
-            LEFT JOIN items i ON t.job_code = i.code
+            LEFT JOIN items i ON t.job_code = i.job_code
             WHERE t.user_id = %s
             ORDER BY t.clock_in DESC, t.id DESC
             """, (user_id,))
@@ -1038,7 +1038,7 @@ def create_item(data: ItemRequest):
 
         cursor.execute(
             "INSERT INTO items (name, code) VALUES (%s, %s)",
-            (data.name, data.code)
+            (data.job_name, data.job_code)
         )
 
         conn.commit()
@@ -1078,11 +1078,11 @@ def search_items(q: str, user_id: int):
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         words = q.split()
-        query = " AND ".join(["i.name ILIKE %s" for _ in words])
+        query = " AND ".join(["i.job_name ILIKE %s" for _ in words])
         params = [f"%{word}%" for word in words]
 
         cursor.execute(f"""
-            SELECT i.id, i.name, i.code
+            SELECT i.id, i.job_name, i.job_code
             FROM items i
             JOIN user_job_assignments uja ON uja.item_id = i.id
             WHERE uja.user_id = %s
@@ -1096,7 +1096,7 @@ def get_user_jobs(user_id: int):
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         cursor.execute("""
-            SELECT i.id, i.name, i.code
+            SELECT i.id, i.job_name, i.job_code
             FROM user_job_assignments uja
             JOIN items i ON uja.item_id = i.id
             WHERE uja.user_id = %s
