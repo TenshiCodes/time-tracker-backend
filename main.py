@@ -542,7 +542,7 @@ def export_time_entries(user_id: int, tz: str = "UTC"):
         time_entries = cursor.fetchall()
 
         # Get projects
-        cursor.execute("SELECT job_name, code FROM items ORDER BY name;")
+        cursor.execute("SELECT job_name, job_code FROM items ORDER BY job_name;")
         projects = cursor.fetchall()
 
     # Build workbook
