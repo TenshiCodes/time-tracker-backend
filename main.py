@@ -166,7 +166,7 @@ def get_jobs():
         cursor.execute("""
             SELECT id, job_code, job_name
             FROM items
-            ORDER BY code
+            ORDER BY job_code
         """)
 
         return cursor.fetchall()
