@@ -101,8 +101,8 @@ CREATE TABLE IF NOT EXISTS tickets (
 # =========================
 # 🔹 RESET ITEMS (optional)
 # =========================
-cursor.execute("TRUNCATE TABLE user_job_assignments RESTART IDENTITY CASCADE")
-cursor.execute("TRUNCATE TABLE items RESTART IDENTITY CASCADE")
+cursor.execute("DELETE FROM items")
+cursor.execute("ALTER SEQUENCE items_new_id_seq RESTART WITH 1")
 
 # =========================
 # 🔹 INSERT ITEMS
