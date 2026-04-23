@@ -649,7 +649,7 @@ def get_time_status(user_id: int):
         cursor.execute("""
             SELECT 
                 t.clock_in, 
-                t.job_job_code, 
+                t.job_code, 
                 i.job_name AS job_name
             FROM time_entries t
             LEFT JOIN items i ON t.job_code = i.job_code
