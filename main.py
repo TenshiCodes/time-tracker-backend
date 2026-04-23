@@ -476,7 +476,7 @@ def email_time_entries(user_id: int, tz: str = "UTC"):
             time_entries = cursor.fetchall()
 
             # ✅ SAME PROJECTS QUERY
-            cursor.execute("SELECT job_name, code FROM items ORDER BY name;")
+            cursor.execute("SELECT job_name, job_code FROM items ORDER BY job_name;")
             projects = cursor.fetchall()
 
         # ✅ BUILD USING SAME FUNCTION
