@@ -254,7 +254,7 @@ sample_items = [
 ]
 
 cursor.executemany(
-    "INSERT INTO items (job_code, job_name) VALUES (%s, %s) ON CONFLICT (job_code, job_name) DO NOTHING",
+    "INSERT INTO items (job_name, job_code) VALUES (%s, %s) ON CONFLICT (job_name, job_code) DO NOTHING",
     sample_items
 )
 
