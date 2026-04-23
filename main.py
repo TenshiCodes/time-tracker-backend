@@ -606,9 +606,17 @@ def get_entry(entry_id: int):
     with get_db() as conn:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        cursor.execute("SELECT * FROM time_entries WHERE id = %s", (entry_id,))
+        cursor.execute("""
+            SELECT 
+                t.*,
+                i.job_name AS job_name
+            FROM time_entries t
+            LEFT JOIN items i 
+                ON t.job_code = i.job_code
+            WHERE t.id = %s
+        """, (entry_id,))
+
         entry = cursor.fetchone()
-    
 
         if not entry:
             raise HTTPException(404, "Not found")
