@@ -164,7 +164,7 @@ def get_jobs():
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         cursor.execute("""
-            SELECT id, job_code, name
+            SELECT id, job_code, job_name
             FROM items
             ORDER BY code
         """)
