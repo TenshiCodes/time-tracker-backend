@@ -117,7 +117,7 @@ class TimeUpdate(BaseModel):
     clock_out: str | None = None
     job_code: str | None = None
     item_id: int | None = None
-    
+
 class AssignJobsRequest(BaseModel):
     item_ids: list[int]
 
@@ -780,6 +780,27 @@ def update_entry(entry_id: int, data: TimeUpdate):
         conn.commit()
 
     return {"message": "Updated"}
+    
+@app.get("/time/entry/{entry_id}")
+def get_single_entry(entry_id: int):
+    with get_db() as conn:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cursor.execute("""
+            SELECT 
+                t.*,
+                i.job_name
+            FROM time_entries t
+            LEFT JOIN items i ON t.job_code = i.job_code
+            WHERE t.id = %s
+        """, (entry_id,))
+
+        entry = cursor.fetchone()
+
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    return format_row(entry)
 
 @app.put("/users/{user_id}/settings")
 def update_settings(user_id: int, data: dict):
@@ -1103,24 +1124,7 @@ def login(data: LoginRequest):
     "username": user["username"],
     "role": user["role"]
 }
-@app.get("/search")
-def search_items(q: str, user_id: int):
-    with get_db() as conn:
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        words = q.split()
-        query = " AND ".join(["i.job_name ILIKE %s" for _ in words])
-        params = [f"%{word}%" for word in words]
-
-        cursor.execute(f"""
-            SELECT i.id, i.job_name, i.job_code
-            FROM items i
-            JOIN user_job_assignments uja ON uja.item_id = i.id
-            WHERE uja.user_id = %s
-            AND {query}
-        """, [user_id] + params)
-
-        return cursor.fetchall()
 @app.get("/admin/users/{user_id}/jobs")
 def get_user_jobs(user_id: int):
     with get_db() as conn:
