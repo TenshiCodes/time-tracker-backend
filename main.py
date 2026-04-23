@@ -110,7 +110,7 @@ class TimeEdit(BaseModel):
     job_code: str
 class ClockInRequest(BaseModel):
     user_id: int
-    item_id: int
+    item_id: Optional[int] = None
 
 class TimeUpdate(BaseModel):
     clock_in: str
@@ -650,7 +650,8 @@ def get_time_status(user_id: int):
             SELECT 
                 t.clock_in, 
                 t.job_code, 
-                i.job_name AS job_name
+                i.job_name AS job_name,
+                t.item_id,
             FROM time_entries t
             LEFT JOIN items i ON t.job_code = i.job_code
             WHERE t.user_id = %s 
