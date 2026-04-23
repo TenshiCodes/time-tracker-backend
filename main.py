@@ -722,9 +722,10 @@ def get_time_entries(user_id: int):
             cursor.execute("""
                 SELECT 
                 t.*,
-                i.job_name AS job_name
+                i.job_name,
+                i.job_code
             FROM time_entries t
-            LEFT JOIN items i ON t.job_code = i.job_code
+            LEFT JOIN items i ON t.item_id = i.id
             WHERE t.user_id = %s
             ORDER BY t.clock_in DESC, t.id DESC
             """, (user_id,))
@@ -780,7 +781,7 @@ def update_entry(entry_id: int, data: TimeUpdate):
         conn.commit()
 
     return {"message": "Updated"}
-    
+
 @app.get("/time/entry/{entry_id}")
 def get_single_entry(entry_id: int):
     with get_db() as conn:
