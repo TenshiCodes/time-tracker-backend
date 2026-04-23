@@ -1094,7 +1094,7 @@ def search_items(q: str, user_id: int):
                 FROM items i
                 WHERE {query}
             """, params)
-        else
+        else:
             cursor.execute(f"""
                 SELECT i.id, i.job_name, i.job_code
                 FROM items i
