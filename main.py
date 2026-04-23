@@ -88,8 +88,8 @@ class UserCreate(BaseModel):
     password: str
 
 class ItemRequest(BaseModel):
-    name: str
-    code: str
+    job_name: str
+    job_code: str
     
 class LoginRequest(BaseModel):
     username: str
@@ -651,7 +651,7 @@ def get_time_status(user_id: int):
                 t.clock_in, 
                 t.job_code, 
                 i.job_name AS job_name,
-                t.item_id,
+                t.item_id
             FROM time_entries t
             LEFT JOIN items i ON t.job_code = i.job_code
             WHERE t.user_id = %s 
@@ -1038,7 +1038,7 @@ def create_item(data: ItemRequest):
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         cursor.execute(
-            "INSERT INTO items (name, code) VALUES (%s, %s)",
+            "INSERT INTO items (job_name, job_code) VALUES (%s, %s)",
             (data.job_name, data.job_code)
         )
 
@@ -1111,14 +1111,28 @@ def assign_jobs(user_id: int, data: AssignJobsRequest):
     with get_db() as conn:
         cursor = conn.cursor()
 
-        # 🔥 clear existing assignments
-        cursor.execute(
-            "DELETE FROM user_job_assignments WHERE user_id = %s",
-            (user_id,)
-        )
+        # ✅ Get current assignments
+        cursor.execute("""
+            SELECT item_id FROM user_job_assignments
+            WHERE user_id = %s
+        """, (user_id,))
+        existing = {row[0] for row in cursor.fetchall()}
 
-        # 🔥 insert new ones safely
-        for item_id in data.item_ids:
+        incoming = set(data.item_ids)
+
+        # ✅ Figure out what to ADD and REMOVE
+        to_add = incoming - existing
+        to_remove = existing - incoming
+
+        # ✅ Remove deselected jobs
+        for item_id in to_remove:
+            cursor.execute("""
+                DELETE FROM user_job_assignments
+                WHERE user_id = %s AND item_id = %s
+            """, (user_id, item_id))
+
+        # ✅ Add new jobs
+        for item_id in to_add:
             cursor.execute("""
                 INSERT INTO user_job_assignments (user_id, item_id)
                 VALUES (%s, %s)
@@ -1127,4 +1141,8 @@ def assign_jobs(user_id: int, data: AssignJobsRequest):
 
         conn.commit()
 
-    return {"message": "Jobs assigned"}
+    return {
+        "message": "Jobs updated",
+        "added": list(to_add),
+        "removed": list(to_remove)
+    }
