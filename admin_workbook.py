@@ -33,15 +33,15 @@ def build_report(projects, time_entries, tz="UTC"):
     ws_lookup = wb.create_sheet(title="Lookup")
 
     for i, p in enumerate(projects, start=1):
-        ws_lookup.cell(row=i, column=1, value=p["name"])  # Customer
-        ws_lookup.cell(row=i, column=2, value=p["code"])  # Project Number
+        ws_lookup.cell(row=i, column=1, value=p["job_name"])  # Customer
+        ws_lookup.cell(row=i, column=2, value=p["job_code"])  # Project Number
 
     ws_lookup.sheet_state = "hidden"
     max_row_lookup = len(projects)
     # -----------------------------------
     # ✅ PROJECT MAP (code → name)
     # -----------------------------------
-    project_map = {p["code"]: p["name"] for p in projects}
+    project_map = {p["job_code"]: p["job_name"] for p in projects}
 
     # -----------------------------------
     # ✅ WRITE DATA
