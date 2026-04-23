@@ -76,8 +76,10 @@ def build_timesheet_wb(projects, time_entries, tz="UTC"):
     # ✅ SORT GROUPED
     # ----------------
     grouped = OrderedDict(
-        sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1]))
-    )
+        sorted(grouped.items(),
+            key=lambda x: (
+                x[0][0],
+                x[0][1] if x[0][1] is not None else "")))
 
     # -----------------------------------
     # ✅ CHECK DAILY LIMIT (8 HOURS)
