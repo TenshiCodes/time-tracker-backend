@@ -601,27 +601,47 @@ def clock_in(data: ClockInRequest):
 
     return {"message": "Clocked in"}
 
-@app.get("/time/entry/{entry_id}")
-def get_entry(entry_id: int):
+@app.get("/search")
+def search_items(q: str, user_id: Optional[int] = None):
     with get_db() as conn:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        cursor.execute("""
-            SELECT 
-                t.*,
-                i.job_name AS job_name
-            FROM time_entries t
-            LEFT JOIN items i 
-                ON t.job_code = i.job_code
-            WHERE t.id = %s
-        """, (entry_id,))
+        words = q.split()
+        query = " AND ".join(["i.job_name ILIKE %s" for _ in words])
+        params = [f"%{word}%" for word in words]
 
-        entry = cursor.fetchone()
+        # 🔍 CHECK IF ADMIN (only if user_id exists)
+        is_admin = False
 
-        if not entry:
-            raise HTTPException(404, "Not found")
+        if user_id:
+            cursor.execute(
+                "SELECT role FROM users WHERE id = %s",
+                (user_id,)
+            )
+            user = cursor.fetchone()
+            if user and user["role"] == "admin":
+                is_admin = True
 
-    return dict(entry)
+        # 🧠 BUILD QUERY BASED ON ROLE
+        if user_id and not is_admin:
+            # normal user → assigned jobs only
+            cursor.execute(f"""
+                SELECT i.id, i.job_name, i.job_code
+                FROM items i
+                JOIN user_job_assignments uja ON uja.item_id = i.id
+                WHERE uja.user_id = %s
+                AND {query}
+            """, [user_id] + params)
+
+        else:
+            # admin OR no user_id → ALL jobs
+            cursor.execute(f"""
+                SELECT i.id, i.job_name, i.job_code
+                FROM items i
+                WHERE {query}
+            """, params)
+
+        return cursor.fetchall()
 
 @app.post("/time/clock-out")
 def clock_out(user_id: int):
@@ -1085,23 +1105,18 @@ def login(data: LoginRequest):
 def search_items(q: str, user_id: int):
     with get_db() as conn:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
         words = q.split()
         query = " AND ".join(["i.job_name ILIKE %s" for _ in words])
         params = [f"%{word}%" for word in words]
-        if user["role"] == 'admin':
-            cursor.execute(f"""
-                SELECT i.id, i.job_name, i.job_code
-                FROM items i
-                WHERE {query}
-            """, params)
-        else:
-            cursor.execute(f"""
-                SELECT i.id, i.job_name, i.job_code
-                FROM items i
-                JOIN user_job_assignments uja ON uja.item_id = i.id
-                WHERE uja.user_id = %s
-                AND {query}
-            """, [user_id] + params)
+
+        cursor.execute(f"""
+            SELECT i.id, i.job_name, i.job_code
+            FROM items i
+            JOIN user_job_assignments uja ON uja.item_id = i.id
+            WHERE uja.user_id = %s
+            AND {query}
+        """, [user_id] + params)
 
         return cursor.fetchall()
 @app.get("/admin/users/{user_id}/jobs")
