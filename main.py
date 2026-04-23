@@ -1082,7 +1082,7 @@ def login(data: LoginRequest):
     "role": user["role"]
 }
 @app.get("/search")
-def search_items(q: str, user_id: int):
+def search_items(q: str, user_id: Optional[int] = None):
     with get_db() as conn:
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -1090,13 +1090,36 @@ def search_items(q: str, user_id: int):
         query = " AND ".join(["i.job_name ILIKE %s" for _ in words])
         params = [f"%{word}%" for word in words]
 
-        cursor.execute(f"""
-            SELECT i.id, i.job_name, i.job_code
-            FROM items i
-            JOIN user_job_assignments uja ON uja.item_id = i.id
-            WHERE uja.user_id = %s
-            AND {query}
-        """, [user_id] + params)
+        # 🔍 CHECK IF ADMIN (only if user_id exists)
+        is_admin = False
+
+        if user_id:
+            cursor.execute(
+                "SELECT role FROM users WHERE id = %s",
+                (user_id,)
+            )
+            user = cursor.fetchone()
+            if user and user["role"] == "admin":
+                is_admin = True
+
+        # 🧠 BUILD QUERY BASED ON ROLE
+        if user_id and not is_admin:
+            # normal user → assigned jobs only
+            cursor.execute(f"""
+                SELECT i.id, i.job_name, i.job_code
+                FROM items i
+                JOIN user_job_assignments uja ON uja.item_id = i.id
+                WHERE uja.user_id = %s
+                AND {query}
+            """, [user_id] + params)
+
+        else:
+            # admin OR no user_id → ALL jobs
+            cursor.execute(f"""
+                SELECT i.id, i.job_name, i.job_code
+                FROM items i
+                WHERE {query}
+            """, params)
 
         return cursor.fetchall()
 @app.get("/admin/users/{user_id}/jobs")
