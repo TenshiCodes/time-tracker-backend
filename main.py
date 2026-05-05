@@ -861,6 +861,20 @@ def delete_user(user_id: int):
         conn.commit()
 
     return {"message": "User deleted"}
+    
+@app.delete("/time/{entry_id}")
+def delete_entry(entry_id: int):
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "DELETE FROM time_entries WHERE id = %s",
+            (entry_id,)
+        )
+
+        conn.commit()
+
+    return {"message": "Entry deleted"}
 
 @app.get("/users")
 def get_users():
